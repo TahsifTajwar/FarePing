@@ -1,18 +1,29 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { Bell, Plane, Search } from "lucide-react";
 
-type FlightResult = {
+type TripType = "ROUND_TRIP" | "ONE_WAY";
+
+type ItineraryLeg = {
+  direction: "OUTBOUND" | "RETURN";
   airline: string;
   originAirport: string;
   destinationAirport: string;
   price: number;
-  currency: string;
   departDate: string;
-  returnDate: string | null;
   stops: number;
   bookingLink: string;
+};
+
+type Itinerary = {
+  id: string;
+  type: "ROUND_TRIP" | "SPLIT_ONE_WAYS" | "ONE_WAY";
+  totalPrice: number;
+  currency: "USD";
+  savingsComparedToRoundTrip: number | null;
+  summary: string;
+  legs: ItineraryLeg[];
 };
 
 const setupSteps = [
@@ -23,32 +34,60 @@ const setupSteps = [
   "SMS alerts"
 ];
 
+const itineraryLabels = {
+  ROUND_TRIP: "Round trip",
+  SPLIT_ONE_WAYS: "Split one-ways",
+  ONE_WAY: "One way"
+};
+
 export default function Home() {
-  const [originAirport, setOriginAirport] = useState("JFK");
-  const [destinationAirport, setDestinationAirport] = useState("LAX");
-  const [departStart, setDepartStart] = useState("");
-  const [departEnd, setDepartEnd] = useState("");
-  const [returnStart, setReturnStart] = useState("");
-  const [returnEnd, setReturnEnd] = useState("");
-  const [maxPrice, setMaxPrice] = useState("250");
+  const [tripType, setTripType] = useState<TripType>("ROUND_TRIP");
+  const [originAirport, setOriginAirport] = useState("");
+  const [destinationAirport, setDestinationAirport] = useState("");
+  const [earliestDepartDate, setEarliestDepartDate] = useState("");
+  const [latestDepartDate, setLatestDepartDate] = useState("");
+  const [latestReturnDate, setLatestReturnDate] = useState("");
+  const [minTripDays, setMinTripDays] = useState("3");
+  const [maxTripDays, setMaxTripDays] = useState("");
+  const [maxPrice, setMaxPrice] = useState("600");
   const [phone, setPhone] = useState("");
-  const [results, setResults] = useState<FlightResult[]>([]);
+  const [results, setResults] = useState<Itinerary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
+
+  function handleTripTypeChange(nextTripType: TripType) {
+    setTripType(nextTripType);
+
+    if (nextTripType === "ONE_WAY") {
+      setLatestReturnDate("");
+      setMinTripDays("");
+      setMaxTripDays("");
+    } else {
+      setMinTripDays((currentMinTripDays) => currentMinTripDays || "3");
+    }
+  }
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError("");
     setResults([]);
+    setHasSearched(false);
 
     const requestBody = {
-      originAirports: [originAirport],
-      destinationAirports: [destinationAirport],
-      departStart,
-      departEnd,
-      ...(returnStart ? { returnStart } : {}),
-      ...(returnEnd ? { returnEnd } : {}),
+      tripType,
+      originAirports: [originAirport.trim().toUpperCase()],
+      destinationAirports: [destinationAirport.trim().toUpperCase()],
+      earliestDepartDate,
+      ...(latestDepartDate ? { latestDepartDate } : {}),
+      ...(tripType === "ROUND_TRIP"
+        ? {
+            latestReturnDate,
+            minTripDays: Number(minTripDays),
+            ...(maxTripDays ? { maxTripDays: Number(maxTripDays) } : {})
+          }
+        : {}),
       maxPrice: Number(maxPrice),
       maxStops: 1
     };
@@ -66,8 +105,9 @@ export default function Home() {
         throw new Error("Flight search failed. Check the form and try again.");
       }
 
-      const data = (await response.json()) as { results: FlightResult[] };
+      const data = (await response.json()) as { results: Itinerary[] };
       setResults(data.results);
+      setHasSearched(true);
     } catch (searchError) {
       setError(
         searchError instanceof Error
@@ -78,6 +118,8 @@ export default function Home() {
       setLoading(false);
     }
   }
+
+  const noResultsFound = hasSearched && !loading && !error && results.length === 0;
 
   return (
     <main className="min-h-screen bg-runway text-ink">
@@ -102,6 +144,40 @@ export default function Home() {
             </div>
 
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={handleSearch}>
+              <div className="grid gap-2 text-sm font-medium sm:col-span-2">
+                <span>Trip type</span>
+                <div className="grid grid-cols-2 rounded-md border border-slate-300 bg-slate-100 p-1">
+                  <label
+                    className={`flex h-10 cursor-pointer items-center justify-center rounded px-3 font-semibold ${
+                      tripType === "ROUND_TRIP" ? "bg-white text-fare shadow-sm" : "text-slate-600"
+                    }`}
+                  >
+                    <input
+                      checked={tripType === "ROUND_TRIP"}
+                      className="sr-only"
+                      name="tripType"
+                      onChange={() => handleTripTypeChange("ROUND_TRIP")}
+                      type="radio"
+                    />
+                    Round trip
+                  </label>
+                  <label
+                    className={`flex h-10 cursor-pointer items-center justify-center rounded px-3 font-semibold ${
+                      tripType === "ONE_WAY" ? "bg-white text-fare shadow-sm" : "text-slate-600"
+                    }`}
+                  >
+                    <input
+                      checked={tripType === "ONE_WAY"}
+                      className="sr-only"
+                      name="tripType"
+                      onChange={() => handleTripTypeChange("ONE_WAY")}
+                      type="radio"
+                    />
+                    One way
+                  </label>
+                </div>
+              </div>
+
               <label className="grid gap-2 text-sm font-medium">
                 From
                 <input
@@ -123,50 +199,69 @@ export default function Home() {
                 />
               </label>
               <label className="grid gap-2 text-sm font-medium">
-                Depart after
+                Earliest departure
                 <input
                   className="rounded-md border border-slate-300 px-3 py-2"
-                  onChange={(event) => setDepartStart(event.target.value)}
+                  onChange={(event) => setEarliestDepartDate(event.target.value)}
                   required
                   type="date"
-                  value={departStart}
+                  value={earliestDepartDate}
                 />
               </label>
               <label className="grid gap-2 text-sm font-medium">
-                Depart before
+                Latest departure
                 <input
                   className="rounded-md border border-slate-300 px-3 py-2"
-                  onChange={(event) => setDepartEnd(event.target.value)}
-                  required
+                  onChange={(event) => setLatestDepartDate(event.target.value)}
                   type="date"
-                  value={departEnd}
+                  value={latestDepartDate}
                 />
               </label>
-              <label className="grid gap-2 text-sm font-medium">
-                Return after
-                <input
-                  className="rounded-md border border-slate-300 px-3 py-2"
-                  onChange={(event) => setReturnStart(event.target.value)}
-                  type="date"
-                  value={returnStart}
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium">
-                Return before
-                <input
-                  className="rounded-md border border-slate-300 px-3 py-2"
-                  onChange={(event) => setReturnEnd(event.target.value)}
-                  type="date"
-                  value={returnEnd}
-                />
-              </label>
+
+              {tripType === "ROUND_TRIP" ? (
+                <>
+                  <label className="grid gap-2 text-sm font-medium">
+                    Latest return
+                    <input
+                      className="rounded-md border border-slate-300 px-3 py-2"
+                      onChange={(event) => setLatestReturnDate(event.target.value)}
+                      required
+                      type="date"
+                      value={latestReturnDate}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm font-medium">
+                    Minimum stay days
+                    <input
+                      className="rounded-md border border-slate-300 px-3 py-2"
+                      min="1"
+                      onChange={(event) => setMinTripDays(event.target.value)}
+                      required
+                      type="number"
+                      value={minTripDays}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm font-medium">
+                    Maximum stay days
+                    <input
+                      className="rounded-md border border-slate-300 px-3 py-2"
+                      min="1"
+                      onChange={(event) => setMaxTripDays(event.target.value)}
+                      placeholder="Optional"
+                      type="number"
+                      value={maxTripDays}
+                    />
+                  </label>
+                </>
+              ) : null}
+
               <label className="grid gap-2 text-sm font-medium">
                 Max price
                 <input
                   className="rounded-md border border-slate-300 px-3 py-2"
                   min="1"
                   onChange={(event) => setMaxPrice(event.target.value)}
-                  placeholder="250"
+                  placeholder="600"
                   required
                   type="number"
                   value={maxPrice}
@@ -193,7 +288,7 @@ export default function Home() {
 
             {loading ? (
               <p className="mt-5 rounded-md bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                Searching mock flight results...
+                Searching mock flight itineraries...
               </p>
             ) : null}
 
@@ -203,38 +298,74 @@ export default function Home() {
               </p>
             ) : null}
 
+            {noResultsFound ? (
+              <p className="mt-5 rounded-md bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                No matching mock fares found under your max price.
+              </p>
+            ) : null}
+
             {results.length > 0 ? (
               <div className="mt-6 grid gap-3">
-                <h3 className="text-lg font-semibold">Mock flight results</h3>
-                {results.map((flight) => (
+                <h3 className="text-lg font-semibold">Mock itinerary results</h3>
+                {results.map((itinerary) => (
                   <article
                     className="rounded-lg border border-slate-200 bg-slate-50 p-4"
-                    key={`${flight.airline}-${flight.price}-${flight.departDate}`}
+                    key={itinerary.id}
                   >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <p className="font-semibold">{flight.airline}</p>
-                        <p className="text-sm text-slate-600">
-                          {flight.originAirport} to {flight.destinationAirport}
+                        <p className="text-sm font-semibold text-fare">
+                          {itineraryLabels[itinerary.type]}
                         </p>
+                        <p className="font-semibold">{itinerary.summary}</p>
+                        {itinerary.savingsComparedToRoundTrip ? (
+                          <p className="mt-1 text-sm font-medium text-signal">
+                            Saves about {itinerary.currency} {itinerary.savingsComparedToRoundTrip} vs round trip
+                          </p>
+                        ) : null}
                       </div>
                       <p className="text-2xl font-bold text-signal">
-                        {flight.currency} {flight.price}
+                        {itinerary.currency} {itinerary.totalPrice}
                       </p>
                     </div>
-                    <div className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-3">
-                      <p>Depart: {flight.departDate}</p>
-                      <p>Return: {flight.returnDate ?? "One-way or flexible"}</p>
-                      <p>Stops: {flight.stops}</p>
+
+                    <div className="mt-4 grid gap-3">
+                      {itinerary.legs.map((leg) => (
+                        <div
+                          className="rounded-md border border-slate-200 bg-white p-3 text-sm"
+                          key={`${itinerary.id}-${leg.direction}-${leg.airline}`}
+                        >
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="font-semibold">
+                              {leg.direction === "OUTBOUND" ? "Outbound" : "Return"}: {leg.originAirport} to{" "}
+                              {leg.destinationAirport}
+                            </p>
+                            <p className="font-semibold">
+                              {itinerary.currency} {leg.price}
+                            </p>
+                          </div>
+                          <div className="mt-2 grid gap-2 text-slate-700 sm:grid-cols-3">
+                            <p>Airline: {leg.airline}</p>
+                            <p>Date: {leg.departDate}</p>
+                            <p>Stops: {leg.stops}</p>
+                          </div>
+                          <a
+                            className="mt-2 inline-block font-semibold text-fare"
+                            href={leg.bookingLink}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            View mock booking
+                          </a>
+                        </div>
+                      ))}
                     </div>
-                    <a
-                      className="mt-3 inline-block text-sm font-semibold text-fare"
-                      href={flight.bookingLink}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      View mock booking
-                    </a>
+
+                    {itinerary.type === "SPLIT_ONE_WAYS" ? (
+                      <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        Split one-way tickets may have separate baggage, cancellation, and change rules.
+                      </p>
+                    ) : null}
                   </article>
                 ))}
               </div>
