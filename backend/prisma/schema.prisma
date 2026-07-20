@@ -3,8 +3,25 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum TripType {
+  ROUND_TRIP
+  ONE_WAY
+}
+
+enum ItineraryType {
+  ROUND_TRIP
+  SPLIT_ONE_WAYS
+  ONE_WAY
+}
+
+enum LegDirection {
+  OUTBOUND
+  RETURN
 }
 
 enum NotificationChannel {
@@ -15,46 +32,73 @@ model User {
   id            String         @id @default(cuid())
   name          String?
   email         String?
-  phone         String
+  phone         String?
   createdAt     DateTime       @default(now())
   savedSearches SavedSearch[]
   notifications Notification[]
 }
 
 model SavedSearch {
-  id                  String         @id @default(cuid())
-  userId              String
+  id                  String              @id @default(cuid())
+  userId              String?
+  contactPhone        String?
+  tripType            TripType
   originAirports      String[]
   destinationAirports String[]
-  departStart         DateTime
-  departEnd           DateTime
-  returnStart         DateTime?
-  returnEnd           DateTime?
+  earliestDepartDate  DateTime
+  latestDepartDate    DateTime?
+  latestReturnDate    DateTime?
   minTripDays         Int?
   maxTripDays         Int?
   maxPrice            Int
   maxStops            Int?
-  active              Boolean        @default(true)
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  user                User           @relation(fields: [userId], references: [id])
-  flightResults       FlightResult[]
+  active              Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  user                User?               @relation(fields: [userId], references: [id])
+  resultBatches       SearchResultBatch[]
   priceHistory        PriceHistory[]
   notifications       Notification[]
 }
 
-model FlightResult {
-  id            String      @id @default(cuid())
+model SearchResultBatch {
+  id            String            @id @default(cuid())
   savedSearchId String
-  airline       String
-  price         Int
-  currency      String      @default("USD")
-  departDate    DateTime
-  returnDate    DateTime?
-  stops         Int
-  bookingLink   String?
-  checkedAt     DateTime    @default(now())
-  savedSearch   SavedSearch @relation(fields: [savedSearchId], references: [id])
+  checkedAt     DateTime          @default(now())
+  bestPrice     Int?
+  savedSearch   SavedSearch       @relation(fields: [savedSearchId], references: [id])
+  itineraries   ItineraryResult[]
+}
+
+model ItineraryResult {
+  id                         String            @id @default(cuid())
+  resultBatchId              String
+  type                       ItineraryType
+  totalPrice                 Int
+  currency                   String            @default("USD")
+  savingsComparedToRoundTrip Int?
+  summary                    String
+  totalDurationMinutes       Int?
+  totalStops                 Int?
+  dealScore                  Int?
+  qualityLabel               String?
+  warning                    String?
+  resultBatch                SearchResultBatch @relation(fields: [resultBatchId], references: [id])
+  legs                       ItineraryLeg[]
+}
+
+model ItineraryLeg {
+  id                 String          @id @default(cuid())
+  itineraryResultId  String
+  direction          LegDirection
+  airline            String
+  originAirport      String
+  destinationAirport String
+  price              Int
+  departDate         DateTime
+  stops              Int
+  bookingLink        String?
+  itineraryResult    ItineraryResult @relation(fields: [itineraryResultId], references: [id])
 }
 
 model PriceHistory {
@@ -67,11 +111,11 @@ model PriceHistory {
 
 model Notification {
   id            String              @id @default(cuid())
-  userId        String
+  userId        String?
   savedSearchId String
   channel       NotificationChannel @default(SMS)
   message       String
   sentAt        DateTime            @default(now())
-  user          User                @relation(fields: [userId], references: [id])
+  user          User?               @relation(fields: [userId], references: [id])
   savedSearch   SavedSearch         @relation(fields: [savedSearchId], references: [id])
 }
