@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, type MouseEvent, useEffect, useState } from "react";
-import { Bell, Plane, Search } from "lucide-react";
+import { Bell, Plane, RefreshCw, Search } from "lucide-react";
 
 type TripType = "ROUND_TRIP" | "ONE_WAY";
 
@@ -49,6 +49,37 @@ type SavedSearch = {
   createdAt: string;
 };
 
+type SavedResultBatch = {
+  id: string;
+  savedSearchId: string;
+  checkedAt: string;
+  bestPrice: number | null;
+  itineraries: SavedItinerary[];
+};
+
+type SavedItinerary = {
+  id: string;
+  type: "ROUND_TRIP" | "SPLIT_ONE_WAYS" | "ONE_WAY";
+  totalPrice: number;
+  currency: string;
+  savingsComparedToRoundTrip: number | null;
+  summary: string;
+  totalStops: number | null;
+  legs: SavedItineraryLeg[];
+};
+
+type SavedItineraryLeg = {
+  id: string;
+  direction: "OUTBOUND" | "RETURN";
+  airline: string;
+  originAirport: string;
+  destinationAirport: string;
+  price: number;
+  departDate: string;
+  stops: number;
+  bookingLink: string | null;
+};
+
 export default function Home() {
   const [tripType, setTripType] = useState<TripType>("ROUND_TRIP");
   const [originAirport, setOriginAirport] = useState("");
@@ -68,6 +99,11 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [checkingSearchId, setCheckingSearchId] = useState("");
+  const [checkError, setCheckError] = useState("");
+  const [resultBatchesBySearchId, setResultBatchesBySearchId] = useState<
+    Record<string, SavedResultBatch>
+  >({});
 
   useEffect(() => {
     void fetchSavedSearches();
@@ -195,6 +231,38 @@ export default function Home() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleCheckSavedSearch(savedSearchId: string) {
+    setCheckingSearchId(savedSearchId);
+    setCheckError("");
+
+    try {
+      const response = await fetch(
+        `http://localhost:4000/api/saved-searches/${savedSearchId}/check`,
+        {
+          method: "POST"
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Could not check this flight alert right now.");
+      }
+
+      const data = (await response.json()) as { resultBatch: SavedResultBatch };
+      setResultBatchesBySearchId((currentResultBatches) => ({
+        ...currentResultBatches,
+        [savedSearchId]: data.resultBatch
+      }));
+    } catch (savedSearchError) {
+      setCheckError(
+        savedSearchError instanceof Error
+          ? savedSearchError.message
+          : "Something went wrong while checking this flight alert."
+      );
+    } finally {
+      setCheckingSearchId("");
     }
   }
 
@@ -478,47 +546,116 @@ export default function Home() {
 
           <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="mb-4 text-xl font-semibold">Tracked trips</h2>
+            {checkError ? (
+              <p className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                {checkError}
+              </p>
+            ) : null}
             {savedSearches.length === 0 ? (
               <p className="rounded-md bg-slate-50 px-4 py-3 text-sm text-slate-700">
                 Saved flight alerts will show here after you create one.
               </p>
             ) : (
               <div className="grid gap-3">
-                {savedSearches.map((savedSearch) => (
-                  <article
-                    className="rounded-lg border border-slate-200 bg-slate-50 p-4"
-                    key={savedSearch.id}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-fare">
-                          {savedSearch.tripType === "ROUND_TRIP" ? "Round trip" : "One way"}
-                        </p>
-                        <h3 className="font-semibold">
-                          {savedSearch.originAirports.join(", ")} to{" "}
-                          {savedSearch.destinationAirports.join(", ")}
-                        </h3>
+                {savedSearches.map((savedSearch) => {
+                  const latestBatch = resultBatchesBySearchId[savedSearch.id];
+
+                  return (
+                    <article
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+                      key={savedSearch.id}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-fare">
+                            {savedSearch.tripType === "ROUND_TRIP" ? "Round trip" : "One way"}
+                          </p>
+                          <h3 className="font-semibold">
+                            {savedSearch.originAirports.join(", ")} to{" "}
+                            {savedSearch.destinationAirports.join(", ")}
+                          </h3>
+                        </div>
+                        <p className="font-bold text-signal">USD {savedSearch.maxPrice}</p>
                       </div>
-                      <p className="font-bold text-signal">USD {savedSearch.maxPrice}</p>
-                    </div>
-                    <div className="mt-3 grid gap-1 text-sm text-slate-700">
-                      <p>Depart from {savedSearch.earliestDepartDate.slice(0, 10)}</p>
-                      {savedSearch.latestDepartDate ? (
-                        <p>Latest depart {savedSearch.latestDepartDate.slice(0, 10)}</p>
+                      <div className="mt-3 grid gap-1 text-sm text-slate-700">
+                        <p>Depart from {savedSearch.earliestDepartDate.slice(0, 10)}</p>
+                        {savedSearch.latestDepartDate ? (
+                          <p>Latest depart {savedSearch.latestDepartDate.slice(0, 10)}</p>
+                        ) : null}
+                        {savedSearch.latestReturnDate ? (
+                          <p>Return by {savedSearch.latestReturnDate.slice(0, 10)}</p>
+                        ) : null}
+                        {savedSearch.minTripDays ? (
+                          <p>
+                            Stay {savedSearch.minTripDays}
+                            {savedSearch.maxTripDays ? `-${savedSearch.maxTripDays}` : "+"} days
+                          </p>
+                        ) : null}
+                        {savedSearch.contactPhone ? <p>Text alerts: {savedSearch.contactPhone}</p> : null}
+                      </div>
+
+                      <button
+                        className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-fare px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+                        disabled={checkingSearchId === savedSearch.id}
+                        onClick={() => handleCheckSavedSearch(savedSearch.id)}
+                        type="button"
+                      >
+                        <RefreshCw size={16} aria-hidden="true" />
+                        {checkingSearchId === savedSearch.id ? "Checking..." : "Check now"}
+                      </button>
+
+                      {latestBatch ? (
+                        <div className="mt-4 rounded-md border border-slate-200 bg-white p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-semibold">Latest saved results</p>
+                            {latestBatch.bestPrice ? (
+                              <p className="text-sm font-bold text-signal">Best USD {latestBatch.bestPrice}</p>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Checked {latestBatch.checkedAt.slice(0, 10)}
+                          </p>
+
+                          {latestBatch.itineraries.length === 0 ? (
+                            <p className="mt-3 text-sm text-slate-700">
+                              No matching fares were found under this alert budget.
+                            </p>
+                          ) : (
+                            <div className="mt-3 grid gap-2">
+                              {latestBatch.itineraries.map((itinerary) => (
+                                <div
+                                  className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm"
+                                  key={itinerary.id}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <p className="font-semibold">
+                                        {itineraryLabels[itinerary.type]}
+                                      </p>
+                                      <p className="text-slate-700">{itinerary.summary}</p>
+                                    </div>
+                                    <p className="font-bold text-signal">
+                                      {itinerary.currency} {itinerary.totalPrice}
+                                    </p>
+                                  </div>
+                                  <div className="mt-2 grid gap-1 text-xs text-slate-600">
+                                    {itinerary.legs.map((leg) => (
+                                      <p key={leg.id}>
+                                        {leg.direction === "OUTBOUND" ? "Outbound" : "Return"}:{" "}
+                                        {leg.airline}, {leg.originAirport} to{" "}
+                                        {leg.destinationAirport} on {leg.departDate.slice(0, 10)}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       ) : null}
-                      {savedSearch.latestReturnDate ? (
-                        <p>Return by {savedSearch.latestReturnDate.slice(0, 10)}</p>
-                      ) : null}
-                      {savedSearch.minTripDays ? (
-                        <p>
-                          Stay {savedSearch.minTripDays}
-                          {savedSearch.maxTripDays ? `-${savedSearch.maxTripDays}` : "+"} days
-                        </p>
-                      ) : null}
-                      {savedSearch.contactPhone ? <p>Text alerts: {savedSearch.contactPhone}</p> : null}
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </aside>
