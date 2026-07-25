@@ -99,6 +99,34 @@ savedSearchesRouter.get("/", async (_req, res) => {
   });
 });
 
+savedSearchesRouter.post("/check-all", async (_req, res) => {
+  const activeSavedSearches = await prisma.savedSearch.findMany({
+    where: {
+      active: true
+    },
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  const resultBatches = [];
+
+  for (const savedSearch of activeSavedSearches) {
+    const resultBatch = await checkSavedSearch(savedSearch);
+    resultBatches.push(resultBatch);
+  }
+
+  res.status(201).json({
+    checkedCount: activeSavedSearches.length,
+    batchesCreated: resultBatches.length,
+    bestPrices: resultBatches.map((resultBatch) => ({
+      savedSearchId: resultBatch.savedSearchId,
+      resultBatchId: resultBatch.id,
+      bestPrice: resultBatch.bestPrice
+    }))
+  });
+});
+
 savedSearchesRouter.post("/:id/check", async (req, res) => {
   const savedSearch = await prisma.savedSearch.findUnique({
     where: {
@@ -113,27 +141,7 @@ savedSearchesRouter.post("/:id/check", async (req, res) => {
     return;
   }
 
-  const mockResults = runMockFlightSearch(buildFlightSearchInput(savedSearch));
-
-  const resultBatch = await prisma.searchResultBatch.create({
-    data: {
-      savedSearchId: savedSearch.id,
-      bestPrice: mockResults[0]?.totalPrice ?? null,
-      itineraries: {
-        create: mockResults.map((itinerary) => buildItineraryCreateInput(itinerary))
-      }
-    },
-    include: {
-      itineraries: {
-        include: {
-          legs: true
-        },
-        orderBy: {
-          totalPrice: "asc"
-        }
-      }
-    }
-  });
+  const resultBatch = await checkSavedSearch(savedSearch);
 
   res.status(201).json({
     resultBatch
@@ -181,8 +189,9 @@ function formatDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function buildFlightSearchInput(savedSearch: {
+type SavedSearchForCheck = {
   tripType: "ROUND_TRIP" | "ONE_WAY";
+  id: string;
   originAirports: string[];
   destinationAirports: string[];
   earliestDepartDate: Date;
@@ -192,7 +201,33 @@ function buildFlightSearchInput(savedSearch: {
   maxTripDays: number | null;
   maxPrice: number;
   maxStops: number | null;
-}): FlightSearchInput {
+};
+
+async function checkSavedSearch(savedSearch: SavedSearchForCheck) {
+  const mockResults = runMockFlightSearch(buildFlightSearchInput(savedSearch));
+
+  return prisma.searchResultBatch.create({
+    data: {
+      savedSearchId: savedSearch.id,
+      bestPrice: mockResults[0]?.totalPrice ?? null,
+      itineraries: {
+        create: mockResults.map((itinerary) => buildItineraryCreateInput(itinerary))
+      }
+    },
+    include: {
+      itineraries: {
+        include: {
+          legs: true
+        },
+        orderBy: {
+          totalPrice: "asc"
+        }
+      }
+    }
+  });
+}
+
+function buildFlightSearchInput(savedSearch: SavedSearchForCheck): FlightSearchInput {
   return {
     tripType: savedSearch.tripType,
     originAirports: savedSearch.originAirports,
