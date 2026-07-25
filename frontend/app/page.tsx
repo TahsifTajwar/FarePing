@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type MouseEvent, useEffect, useState } from "react";
 import { Bell, Plane, Search } from "lucide-react";
 
 type TripType = "ROUND_TRIP" | "ONE_WAY";
@@ -26,18 +26,27 @@ type Itinerary = {
   legs: ItineraryLeg[];
 };
 
-const setupSteps = [
-  "Backend health endpoint",
-  "Flight search form",
-  "Saved searches",
-  "Scheduled price checks",
-  "SMS alerts"
-];
-
 const itineraryLabels = {
   ROUND_TRIP: "Round trip",
   SPLIT_ONE_WAYS: "Split one-ways",
   ONE_WAY: "One way"
+};
+
+type SavedSearch = {
+  id: string;
+  contactPhone: string | null;
+  tripType: TripType;
+  originAirports: string[];
+  destinationAirports: string[];
+  earliestDepartDate: string;
+  latestDepartDate: string | null;
+  latestReturnDate: string | null;
+  minTripDays: number | null;
+  maxTripDays: number | null;
+  maxPrice: number;
+  maxStops: number | null;
+  active: boolean;
+  createdAt: string;
 };
 
 export default function Home() {
@@ -55,6 +64,14 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
+
+  useEffect(() => {
+    void fetchSavedSearches();
+  }, []);
 
   function handleTripTypeChange(nextTripType: TripType) {
     setTripType(nextTripType);
@@ -64,7 +81,47 @@ export default function Home() {
       setMinTripDays("");
       setMaxTripDays("");
     } else {
+      setLatestDepartDate("");
       setMinTripDays((currentMinTripDays) => currentMinTripDays || "3");
+    }
+  }
+
+  function buildSearchRequestBody(includeContactPhone = false) {
+    return {
+      tripType,
+      originAirports: [originAirport.trim().toUpperCase()],
+      destinationAirports: [destinationAirport.trim().toUpperCase()],
+      earliestDepartDate,
+      ...(tripType === "ONE_WAY" && latestDepartDate ? { latestDepartDate } : {}),
+      ...(tripType === "ROUND_TRIP"
+        ? {
+            latestReturnDate,
+            minTripDays: Number(minTripDays),
+            ...(maxTripDays ? { maxTripDays: Number(maxTripDays) } : {})
+          }
+        : {}),
+      maxPrice: Number(maxPrice),
+      maxStops: 1,
+      ...(includeContactPhone && phone.trim() ? { contactPhone: phone.trim() } : {})
+    };
+  }
+
+  async function fetchSavedSearches() {
+    try {
+      const response = await fetch("http://localhost:4000/api/saved-searches");
+
+      if (!response.ok) {
+        throw new Error("Could not load saved flight alerts.");
+      }
+
+      const data = (await response.json()) as { savedSearches: SavedSearch[] };
+      setSavedSearches(data.savedSearches);
+    } catch (savedSearchError) {
+      setSaveError(
+        savedSearchError instanceof Error
+          ? savedSearchError.message
+          : "Something went wrong while loading saved flight alerts."
+      );
     }
   }
 
@@ -75,30 +132,13 @@ export default function Home() {
     setResults([]);
     setHasSearched(false);
 
-    const requestBody = {
-      tripType,
-      originAirports: [originAirport.trim().toUpperCase()],
-      destinationAirports: [destinationAirport.trim().toUpperCase()],
-      earliestDepartDate,
-      ...(latestDepartDate ? { latestDepartDate } : {}),
-      ...(tripType === "ROUND_TRIP"
-        ? {
-            latestReturnDate,
-            minTripDays: Number(minTripDays),
-            ...(maxTripDays ? { maxTripDays: Number(maxTripDays) } : {})
-          }
-        : {}),
-      maxPrice: Number(maxPrice),
-      maxStops: 1
-    };
-
     try {
       const response = await fetch("http://localhost:4000/api/flights/search", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(buildSearchRequestBody())
       });
 
       if (!response.ok) {
@@ -116,6 +156,45 @@ export default function Home() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSaveSearch(event: MouseEvent<HTMLButtonElement>) {
+    if (!event.currentTarget.form?.reportValidity()) {
+      return;
+    }
+
+    setSaving(true);
+    setSaveMessage("");
+    setSaveError("");
+
+    try {
+      const response = await fetch("http://localhost:4000/api/saved-searches", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(buildSearchRequestBody(true))
+      });
+
+      if (!response.ok) {
+        throw new Error("Could not save this flight alert. Check the form and try again.");
+      }
+
+      const data = (await response.json()) as { savedSearch: SavedSearch };
+      setSavedSearches((currentSavedSearches) => [
+        data.savedSearch,
+        ...currentSavedSearches
+      ]);
+      setSaveMessage("Flight alert saved.");
+    } catch (savedSearchError) {
+      setSaveError(
+        savedSearchError instanceof Error
+          ? savedSearchError.message
+          : "Something went wrong while saving this flight alert."
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -208,15 +287,17 @@ export default function Home() {
                   value={earliestDepartDate}
                 />
               </label>
-              <label className="grid gap-2 text-sm font-medium">
-                Latest departure
-                <input
-                  className="rounded-md border border-slate-300 px-3 py-2"
-                  onChange={(event) => setLatestDepartDate(event.target.value)}
-                  type="date"
-                  value={latestDepartDate}
-                />
-              </label>
+              {tripType === "ONE_WAY" ? (
+                <label className="grid gap-2 text-sm font-medium">
+                  Latest departure
+                  <input
+                    className="rounded-md border border-slate-300 px-3 py-2"
+                    onChange={(event) => setLatestDepartDate(event.target.value)}
+                    type="date"
+                    value={latestDepartDate}
+                  />
+                </label>
+              ) : null}
 
               {tripType === "ROUND_TRIP" ? (
                 <>
@@ -276,15 +357,38 @@ export default function Home() {
                   value={phone}
                 />
               </label>
-              <button
-                className="mt-2 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-fare px-4 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400 sm:col-span-2"
-                disabled={loading}
-                type="submit"
-              >
-                <Bell size={18} aria-hidden="true" />
-                {loading ? "Searching..." : "Search flights"}
-              </button>
+              <div className="mt-2 grid gap-3 sm:col-span-2 sm:grid-cols-2">
+                <button
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-fare px-4 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+                  disabled={loading}
+                  type="submit"
+                >
+                  <Search size={18} aria-hidden="true" />
+                  {loading ? "Searching..." : "Search flights"}
+                </button>
+                <button
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-fare px-4 font-semibold text-fare disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                  disabled={saving}
+                  onClick={handleSaveSearch}
+                  type="button"
+                >
+                  <Bell size={18} aria-hidden="true" />
+                  {saving ? "Saving..." : "Save flight alert"}
+                </button>
+              </div>
             </form>
+
+            {saveMessage ? (
+              <p className="mt-5 rounded-md bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                {saveMessage}
+              </p>
+            ) : null}
+
+            {saveError ? (
+              <p className="mt-5 rounded-md bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                {saveError}
+              </p>
+            ) : null}
 
             {loading ? (
               <p className="mt-5 rounded-md bg-blue-50 px-4 py-3 text-sm text-blue-800">
@@ -373,17 +477,50 @@ export default function Home() {
           </section>
 
           <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-xl font-semibold">Build path</h2>
-            <ol className="grid gap-3">
-              {setupSteps.map((step, index) => (
-                <li className="flex items-center gap-3" key={step}>
-                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-sm font-semibold">
-                    {index + 1}
-                  </span>
-                  <span>{step}</span>
-                </li>
-              ))}
-            </ol>
+            <h2 className="mb-4 text-xl font-semibold">Tracked trips</h2>
+            {savedSearches.length === 0 ? (
+              <p className="rounded-md bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                Saved flight alerts will show here after you create one.
+              </p>
+            ) : (
+              <div className="grid gap-3">
+                {savedSearches.map((savedSearch) => (
+                  <article
+                    className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+                    key={savedSearch.id}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-fare">
+                          {savedSearch.tripType === "ROUND_TRIP" ? "Round trip" : "One way"}
+                        </p>
+                        <h3 className="font-semibold">
+                          {savedSearch.originAirports.join(", ")} to{" "}
+                          {savedSearch.destinationAirports.join(", ")}
+                        </h3>
+                      </div>
+                      <p className="font-bold text-signal">USD {savedSearch.maxPrice}</p>
+                    </div>
+                    <div className="mt-3 grid gap-1 text-sm text-slate-700">
+                      <p>Depart from {savedSearch.earliestDepartDate.slice(0, 10)}</p>
+                      {savedSearch.latestDepartDate ? (
+                        <p>Latest depart {savedSearch.latestDepartDate.slice(0, 10)}</p>
+                      ) : null}
+                      {savedSearch.latestReturnDate ? (
+                        <p>Return by {savedSearch.latestReturnDate.slice(0, 10)}</p>
+                      ) : null}
+                      {savedSearch.minTripDays ? (
+                        <p>
+                          Stay {savedSearch.minTripDays}
+                          {savedSearch.maxTripDays ? `-${savedSearch.maxTripDays}` : "+"} days
+                        </p>
+                      ) : null}
+                      {savedSearch.contactPhone ? <p>Text alerts: {savedSearch.contactPhone}</p> : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
           </aside>
         </div>
       </section>
