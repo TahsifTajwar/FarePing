@@ -47,6 +47,7 @@ type SavedSearch = {
   maxStops: number | null;
   active: boolean;
   createdAt: string;
+  resultBatches?: SavedResultBatch[];
 };
 
 type SavedResultBatch = {
@@ -152,6 +153,7 @@ export default function Home() {
 
       const data = (await response.json()) as { savedSearches: SavedSearch[] };
       setSavedSearches(data.savedSearches);
+      setResultBatchesBySearchId(buildLatestResultBatchMap(data.savedSearches));
     } catch (savedSearchError) {
       setSaveError(
         savedSearchError instanceof Error
@@ -159,6 +161,21 @@ export default function Home() {
           : "Something went wrong while loading saved flight alerts."
       );
     }
+  }
+
+  function buildLatestResultBatchMap(savedSearchesWithResults: SavedSearch[]) {
+    return savedSearchesWithResults.reduce<Record<string, SavedResultBatch>>(
+      (latestResults, savedSearch) => {
+        const latestBatch = savedSearch.resultBatches?.[0];
+
+        if (latestBatch) {
+          latestResults[savedSearch.id] = latestBatch;
+        }
+
+        return latestResults;
+      },
+      {}
+    );
   }
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {

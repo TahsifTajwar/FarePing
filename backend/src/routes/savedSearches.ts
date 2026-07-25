@@ -71,6 +71,24 @@ savedSearchesRouter.post("/", async (req, res) => {
 
 savedSearchesRouter.get("/", async (_req, res) => {
   const savedSearches = await prisma.savedSearch.findMany({
+    include: {
+      resultBatches: {
+        include: {
+          itineraries: {
+            include: {
+              legs: true
+            },
+            orderBy: {
+              totalPrice: "asc"
+            }
+          }
+        },
+        orderBy: {
+          checkedAt: "desc"
+        },
+        take: 1
+      }
+    },
     orderBy: {
       createdAt: "desc"
     }
