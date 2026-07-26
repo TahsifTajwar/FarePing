@@ -23,6 +23,11 @@ type Itinerary = {
   currency: "USD";
   savingsComparedToRoundTrip: number | null;
   summary: string;
+  totalDurationMinutes: number;
+  dealScore: number;
+  qualityLabel: string;
+  warning: string | null;
+  carryOnIncluded: boolean;
   legs: ItineraryLeg[];
 };
 
@@ -65,6 +70,10 @@ type SavedItinerary = {
   currency: string;
   savingsComparedToRoundTrip: number | null;
   summary: string;
+  totalDurationMinutes: number | null;
+  dealScore: number | null;
+  qualityLabel: string | null;
+  warning: string | null;
   totalStops: number | null;
   legs: SavedItineraryLeg[];
 };
@@ -176,6 +185,17 @@ export default function Home() {
       },
       {}
     );
+  }
+
+  function formatDuration(totalMinutes: number | null) {
+    if (!totalMinutes) {
+      return "Duration unavailable";
+    }
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
   }
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
@@ -489,7 +509,7 @@ export default function Home() {
 
             {noResultsFound ? (
               <p className="mt-5 rounded-md bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                No matching mock fares found under your max price.
+                No mock fares met FarePing&apos;s quality threshold for this search.
               </p>
             ) : null}
 
@@ -504,9 +524,13 @@ export default function Home() {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="text-sm font-semibold text-fare">
-                          {itineraryLabels[itinerary.type]}
+                          {itinerary.qualityLabel}
                         </p>
                         <p className="font-semibold">{itinerary.summary}</p>
+                        <p className="mt-1 text-sm text-slate-700">
+                          {itineraryLabels[itinerary.type]} - {formatDuration(itinerary.totalDurationMinutes)} -{" "}
+                          {itinerary.carryOnIncluded ? "Carry-on included" : "Carry-on not included"}
+                        </p>
                         {itinerary.savingsComparedToRoundTrip ? (
                           <p className="mt-1 text-sm font-medium text-signal">
                             Saves about {itinerary.currency} {itinerary.savingsComparedToRoundTrip} vs round trip
@@ -550,9 +574,9 @@ export default function Home() {
                       ))}
                     </div>
 
-                    {itinerary.type === "SPLIT_ONE_WAYS" ? (
+                    {itinerary.warning ? (
                       <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        Split one-way tickets may have separate baggage, cancellation, and change rules.
+                        {itinerary.warning}
                       </p>
                     ) : null}
                   </article>
@@ -635,7 +659,7 @@ export default function Home() {
 
                           {latestBatch.itineraries.length === 0 ? (
                             <p className="mt-3 text-sm text-slate-700">
-                              No matching fares were found under this alert budget.
+                              No strong matching fares were found for this alert.
                             </p>
                           ) : (
                             <div className="mt-3 grid gap-2">
@@ -647,9 +671,13 @@ export default function Home() {
                                   <div className="flex items-start justify-between gap-3">
                                     <div>
                                       <p className="font-semibold">
-                                        {itineraryLabels[itinerary.type]}
+                                        {itinerary.qualityLabel ?? itineraryLabels[itinerary.type]}
                                       </p>
                                       <p className="text-slate-700">{itinerary.summary}</p>
+                                      <p className="mt-1 text-slate-600">
+                                        {itineraryLabels[itinerary.type]} -{" "}
+                                        {formatDuration(itinerary.totalDurationMinutes)}
+                                      </p>
                                     </div>
                                     <p className="font-bold text-signal">
                                       {itinerary.currency} {itinerary.totalPrice}
@@ -664,6 +692,11 @@ export default function Home() {
                                       </p>
                                     ))}
                                   </div>
+                                  {itinerary.warning ? (
+                                    <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                                      {itinerary.warning}
+                                    </p>
+                                  ) : null}
                                 </div>
                               ))}
                             </div>

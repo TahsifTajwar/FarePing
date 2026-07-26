@@ -78,7 +78,7 @@ savedSearchesRouter.get("/", async (_req, res) => {
               legs: true
             },
             orderBy: {
-              totalPrice: "asc"
+              dealScore: "desc"
             }
           }
         },
@@ -136,6 +136,9 @@ savedSearchesRouter.get("/:id", async (req, res) => {
           itineraries: {
             include: {
               legs: true
+            },
+            orderBy: {
+              dealScore: "desc"
             }
           }
         },

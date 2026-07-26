@@ -64,7 +64,7 @@ export async function checkSavedSearch(savedSearch: SavedSearchForCheck) {
           legs: true
         },
         orderBy: {
-          totalPrice: "asc"
+          dealScore: "desc"
         }
       }
     }
@@ -97,7 +97,11 @@ function buildItineraryCreateInput(itinerary: MockItinerary) {
     currency: itinerary.currency,
     savingsComparedToRoundTrip: itinerary.savingsComparedToRoundTrip,
     summary: itinerary.summary,
+    totalDurationMinutes: itinerary.totalDurationMinutes,
     totalStops: itinerary.legs.reduce((totalStops, leg) => totalStops + leg.stops, 0),
+    dealScore: itinerary.dealScore,
+    qualityLabel: itinerary.qualityLabel,
+    warning: itinerary.warning,
     legs: {
       create: itinerary.legs.map((leg) => ({
         direction: leg.direction,
