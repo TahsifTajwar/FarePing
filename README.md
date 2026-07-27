@@ -25,3 +25,19 @@ npm run dev
 ```
 
 Copy `backend/.env.example` to `backend/.env` before connecting real flight data, PostgreSQL, or SMS credentials.
+
+## SMS Setup
+
+FarePing can send SMS alerts through Twilio after a saved flight alert passes the backend notification rules.
+
+Real Twilio credentials should only go in `backend/.env`. Do not commit real secrets.
+
+Required values:
+
+```env
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
+```
+
+If any Twilio value is missing, the backend still creates notification records but safely skips SMS sending.
