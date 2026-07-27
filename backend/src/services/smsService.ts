@@ -1,6 +1,8 @@
 import twilio from "twilio";
 import { env, smsConfigured } from "../config/env.js";
 
+const TWILIO_TRIAL_TEMPLATE = "sms_account_alerts";
+
 type SendSmsInput = {
   to: string;
   message: string;
@@ -21,9 +23,10 @@ export async function sendSms(input: SendSmsInput) {
   }
 
   const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+  const body = env.TWILIO_USE_TRIAL_TEMPLATE ? TWILIO_TRIAL_TEMPLATE : input.message;
 
   const message = await client.messages.create({
-    body: input.message,
+    body,
     from: env.TWILIO_FROM_NUMBER,
     to: input.to
   });

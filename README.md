@@ -38,6 +38,15 @@ Required values:
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_FROM_NUMBER=
+TWILIO_USE_TRIAL_TEMPLATE=false
 ```
 
 If any Twilio value is missing, the backend still creates notification records but safely skips SMS sending.
+
+Twilio trial accounts may only send predefined template messages. For trial testing, set:
+
+```env
+TWILIO_USE_TRIAL_TEMPLATE=true
+```
+
+This sends Twilio's `sms_account_alerts` template instead of FarePing's custom alert text. Set it back to `false` after upgrading Twilio.
