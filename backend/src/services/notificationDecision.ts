@@ -1,4 +1,5 @@
 import { prisma } from "../db/prisma.js";
+import { sendSms } from "./smsService.js";
 
 const MIN_NOTIFICATION_DEAL_SCORE = 700;
 const NOTIFICATION_COOLDOWN_HOURS = 12;
@@ -102,11 +103,13 @@ export async function maybeCreateNotification(
       dealScore
     }
   });
+  const smsResult = await sendNotificationSms(savedSearch, notification.message);
 
   return {
     created: true,
     reason: "Notification record created.",
-    notification
+    notification,
+    smsResult
   };
 }
 
@@ -114,8 +117,32 @@ function buildSkippedDecision(reason: string) {
   return {
     created: false,
     reason,
-    notification: null
+    notification: null,
+    smsResult: null
   };
+}
+
+async function sendNotificationSms(savedSearch: SavedSearchForNotification, message: string) {
+  if (!savedSearch.contactPhone) {
+    return {
+      sent: false,
+      reason: "Saved search does not have a phone number."
+    };
+  }
+
+  try {
+    return await sendSms({
+      to: savedSearch.contactPhone,
+      message
+    });
+  } catch (error) {
+    console.error("Failed to send notification SMS.", error);
+
+    return {
+      sent: false,
+      reason: "SMS send failed."
+    };
+  }
 }
 
 function buildNotificationMessage(

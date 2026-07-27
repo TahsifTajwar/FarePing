@@ -45,6 +45,7 @@ export async function checkAllActiveSavedSearches() {
     checkedCount: activeSavedSearches.length,
     batchesCreated: resultBatches.length,
     notificationsCreated: notificationDecisions.filter((decision) => decision.created).length,
+    smsSent: notificationDecisions.filter((decision) => decision.smsResult?.sent).length,
     bestPrices: resultBatches.map((resultBatch) => ({
       savedSearchId: resultBatch.savedSearchId,
       resultBatchId: resultBatch.id,
