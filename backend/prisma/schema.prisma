@@ -68,6 +68,7 @@ model SearchResultBatch {
   bestPrice     Int?
   savedSearch   SavedSearch       @relation(fields: [savedSearchId], references: [id])
   itineraries   ItineraryResult[]
+  notifications Notification[]
 }
 
 model ItineraryResult {
@@ -110,12 +111,20 @@ model PriceHistory {
 }
 
 model Notification {
-  id            String              @id @default(cuid())
-  userId        String?
-  savedSearchId String
-  channel       NotificationChannel @default(SMS)
-  message       String
-  sentAt        DateTime            @default(now())
-  user          User?               @relation(fields: [userId], references: [id])
-  savedSearch   SavedSearch         @relation(fields: [savedSearchId], references: [id])
+  id                   String              @id @default(cuid())
+  userId               String?
+  savedSearchId        String
+  resultBatchId        String?
+  channel              NotificationChannel @default(SMS)
+  message              String
+  itineraryFingerprint String?
+  bestPrice            Int?
+  dealScore            Int?
+  sentAt               DateTime            @default(now())
+  user                 User?               @relation(fields: [userId], references: [id])
+  savedSearch          SavedSearch         @relation(fields: [savedSearchId], references: [id])
+  resultBatch          SearchResultBatch?  @relation(fields: [resultBatchId], references: [id])
+
+  @@index([savedSearchId, sentAt])
+  @@index([savedSearchId, itineraryFingerprint])
 }

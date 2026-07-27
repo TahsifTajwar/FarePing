@@ -4,10 +4,13 @@ import {
   type MockItinerary,
   runMockFlightSearch
 } from "./mockFlightSearch.js";
+import { maybeCreateNotification } from "./notificationDecision.js";
 
 type SavedSearchForCheck = {
   tripType: "ROUND_TRIP" | "ONE_WAY";
   id: string;
+  userId: string | null;
+  contactPhone: string | null;
   originAirports: string[];
   destinationAirports: string[];
   earliestDepartDate: Date;
@@ -30,15 +33,18 @@ export async function checkAllActiveSavedSearches() {
   });
 
   const resultBatches = [];
+  const notificationDecisions = [];
 
   for (const savedSearch of activeSavedSearches) {
-    const resultBatch = await checkSavedSearch(savedSearch);
+    const { resultBatch, notificationDecision } = await checkSavedSearch(savedSearch);
     resultBatches.push(resultBatch);
+    notificationDecisions.push(notificationDecision);
   }
 
   return {
     checkedCount: activeSavedSearches.length,
     batchesCreated: resultBatches.length,
+    notificationsCreated: notificationDecisions.filter((decision) => decision.created).length,
     bestPrices: resultBatches.map((resultBatch) => ({
       savedSearchId: resultBatch.savedSearchId,
       resultBatchId: resultBatch.id,
@@ -50,7 +56,7 @@ export async function checkAllActiveSavedSearches() {
 export async function checkSavedSearch(savedSearch: SavedSearchForCheck) {
   const mockResults = runMockFlightSearch(buildFlightSearchInput(savedSearch));
 
-  return prisma.searchResultBatch.create({
+  const resultBatch = await prisma.searchResultBatch.create({
     data: {
       savedSearchId: savedSearch.id,
       bestPrice: mockResults[0]?.totalPrice ?? null,
@@ -69,6 +75,13 @@ export async function checkSavedSearch(savedSearch: SavedSearchForCheck) {
       }
     }
   });
+
+  const notificationDecision = await maybeCreateNotification(savedSearch, resultBatch);
+
+  return {
+    resultBatch,
+    notificationDecision
+  };
 }
 
 function formatDate(date: Date) {

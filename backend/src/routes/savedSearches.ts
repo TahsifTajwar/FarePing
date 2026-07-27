@@ -118,10 +118,11 @@ savedSearchesRouter.post("/:id/check", async (req, res) => {
     return;
   }
 
-  const resultBatch = await checkSavedSearch(savedSearch);
+  const { resultBatch, notificationDecision } = await checkSavedSearch(savedSearch);
 
   res.status(201).json({
-    resultBatch
+    resultBatch,
+    notificationDecision
   });
 });
 
