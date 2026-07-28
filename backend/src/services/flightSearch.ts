@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import { amadeusFlightProvider } from "./flightProviders/amadeusFlightProvider.js";
 import { mockFlightProvider } from "./flightProviders/mockFlightProvider.js";
 import {
   type FlightProvider,
@@ -8,6 +9,7 @@ import {
 import { scoreFilterAndSortResults } from "./flightScoring.js";
 
 const providers: Record<string, FlightProvider> = {
+  amadeus: amadeusFlightProvider,
   mock: mockFlightProvider
 };
 

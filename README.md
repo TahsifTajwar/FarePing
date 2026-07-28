@@ -36,6 +36,17 @@ FLIGHT_PROVIDER=mock
 
 Later, real providers like Amadeus can be added behind the same search interface without changing the frontend, saved-search checks, scoring, or SMS alert flow.
 
+To test Amadeus instead of mock data, create an Amadeus Self-Service test app and set:
+
+```env
+FLIGHT_PROVIDER=amadeus
+AMADEUS_BASE_URL=https://test.api.amadeus.com
+AMADEUS_CLIENT_ID=
+AMADEUS_CLIENT_SECRET=
+```
+
+The first Amadeus provider searches exact dates only. For round trips, it checks one normal round-trip result set and separate outbound/return one-way result sets so FarePing can compare split one-way tickets.
+
 ## SMS Setup
 
 FarePing can send SMS alerts through Twilio after a saved flight alert passes the backend notification rules.
