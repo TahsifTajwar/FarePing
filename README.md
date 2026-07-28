@@ -56,9 +56,10 @@ FLIGHT_PROVIDER=serpapi
 SCHEDULED_FLIGHT_PROVIDER=mock
 SERPAPI_BASE_URL=https://serpapi.com
 SERPAPI_API_KEY=
+MAX_SERPAPI_DATE_PAIRS=3
 ```
 
-The first SerpApi provider uses exact dates and passes multiple origin/destination airports as comma-separated Google Flights parameters. For round trips, it also checks outbound and return one-way results so FarePing can compare split one-way tickets.
+The SerpApi provider passes multiple origin/destination airports as comma-separated Google Flights parameters. For round trips, it checks a limited set of date pairs inside the user's date window, then also checks outbound and return one-way results for each date pair so FarePing can compare split one-way tickets. Keep `MAX_SERPAPI_DATE_PAIRS` low during testing because each round-trip date pair can require several SerpApi calls.
 
 ## SMS Setup
 

@@ -13,6 +13,7 @@ const envSchema = z.object({
   AMADEUS_CLIENT_SECRET: z.string().optional(),
   SERPAPI_BASE_URL: z.string().url().default("https://serpapi.com"),
   SERPAPI_API_KEY: z.string().optional(),
+  MAX_SERPAPI_DATE_PAIRS: z.coerce.number().int().positive().max(10).default(3),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM_NUMBER: z.string().optional(),

@@ -55,6 +55,11 @@ type SerpApiSearchParams = {
   maxStops?: number;
 };
 
+type DatePair = {
+  departureDate: string;
+  returnDate: string;
+};
+
 const MAX_SPLIT_OPTIONS_PER_SIDE = 3;
 const MAX_ROUND_TRIP_OUTBOUND_OPTIONS = 2;
 
@@ -81,44 +86,49 @@ export const serpApiFlightProvider: FlightProvider = {
       throw new Error("latestReturnDate is required before searching SerpApi round-trip flights.");
     }
 
-    const roundTripSearchParams = {
-      tripType: "ROUND_TRIP" as const,
-      originAirports: search.originAirports,
-      destinationAirports: search.destinationAirports,
-      departureDate: search.earliestDepartDate,
-      returnDate: search.latestReturnDate,
-      maxPrice: search.maxPrice + 50,
-      maxStops: search.maxStops
-    };
+    const datePairs = buildDatePairs(search, env.MAX_SERPAPI_DATE_PAIRS);
+    const itineraries: UnscoredItinerary[] = [];
 
-    const [roundTripOutboundResponse, outboundResponse, returnResponse] = await Promise.all([
-      fetchGoogleFlights(roundTripSearchParams),
-      fetchGoogleFlights({
-        tripType: "ONE_WAY",
+    for (const datePair of datePairs) {
+      const roundTripSearchParams = {
+        tripType: "ROUND_TRIP" as const,
         originAirports: search.originAirports,
         destinationAirports: search.destinationAirports,
-        departureDate: search.earliestDepartDate,
+        departureDate: datePair.departureDate,
+        returnDate: datePair.returnDate,
         maxPrice: search.maxPrice + 50,
         maxStops: search.maxStops
-      }),
-      fetchGoogleFlights({
-        tripType: "ONE_WAY",
-        originAirports: search.destinationAirports,
-        destinationAirports: search.originAirports,
-        departureDate: search.latestReturnDate,
-        maxPrice: search.maxPrice + 50,
-        maxStops: search.maxStops
-      })
-    ]);
+      };
 
-    const roundTrips = await buildRoundTripItineraries(roundTripOutboundResponse, roundTripSearchParams);
+      const [roundTripOutboundResponse, outboundResponse, returnResponse] = await Promise.all([
+        fetchGoogleFlights(roundTripSearchParams),
+        fetchGoogleFlights({
+          tripType: "ONE_WAY",
+          originAirports: search.originAirports,
+          destinationAirports: search.destinationAirports,
+          departureDate: datePair.departureDate,
+          maxPrice: search.maxPrice + 50,
+          maxStops: search.maxStops
+        }),
+        fetchGoogleFlights({
+          tripType: "ONE_WAY",
+          originAirports: search.destinationAirports,
+          destinationAirports: search.originAirports,
+          departureDate: datePair.returnDate,
+          maxPrice: search.maxPrice + 50,
+          maxStops: search.maxStops
+        })
+      ]);
+
+      itineraries.push(
+        ...(await buildRoundTripItineraries(roundTripOutboundResponse, roundTripSearchParams)),
+        ...buildSplitOneWayItineraries(outboundResponse, returnResponse)
+      );
+    }
 
     return {
       provider: this.name,
-      itineraries: [
-        ...roundTrips,
-        ...buildSplitOneWayItineraries(outboundResponse, returnResponse)
-      ]
+      itineraries: dedupeItineraries(itineraries)
     };
   }
 };
@@ -451,10 +461,97 @@ function mapMaxStops(maxStops?: number) {
   return undefined;
 }
 
+function buildDatePairs(search: FlightSearchInput, maxDatePairs: number): DatePair[] {
+  if (!search.latestReturnDate || !search.minTripDays) {
+    return [
+      {
+        departureDate: search.earliestDepartDate,
+        returnDate: search.latestReturnDate ?? search.earliestDepartDate
+      }
+    ];
+  }
+
+  const earliestDepartDate = parseDate(search.earliestDepartDate);
+  const latestReturnDate = parseDate(search.latestReturnDate);
+  const windowDays = differenceInDays(earliestDepartDate, latestReturnDate);
+  const maxTripDays = Math.min(search.maxTripDays ?? windowDays, windowDays);
+
+  if (windowDays < search.minTripDays) {
+    return [];
+  }
+
+  const allValidPairs: DatePair[] = [];
+
+  for (let departOffset = 0; departOffset <= windowDays - search.minTripDays; departOffset++) {
+    const departureDate = addDays(earliestDepartDate, departOffset);
+    const remainingWindowDays = differenceInDays(departureDate, latestReturnDate);
+    const longestStayFromDeparture = Math.min(maxTripDays, remainingWindowDays);
+
+    for (let stayDays = search.minTripDays; stayDays <= longestStayFromDeparture; stayDays++) {
+      allValidPairs.push({
+        departureDate: formatDate(departureDate),
+        returnDate: formatDate(addDays(departureDate, stayDays))
+      });
+    }
+  }
+
+  return sampleDatePairs(dedupeDatePairs(allValidPairs), maxDatePairs);
+}
+
+function dedupeDatePairs(datePairs: DatePair[]) {
+  const seen = new Set<string>();
+
+  return datePairs.filter((datePair) => {
+    const key = `${datePair.departureDate}-${datePair.returnDate}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function sampleDatePairs(datePairs: DatePair[], maxDatePairs: number) {
+  if (datePairs.length <= maxDatePairs) {
+    return datePairs;
+  }
+
+  const selectedIndexes = new Set<number>();
+
+  for (let index = 0; index < maxDatePairs; index++) {
+    selectedIndexes.add(Math.round((index * (datePairs.length - 1)) / Math.max(maxDatePairs - 1, 1)));
+  }
+
+  return [...selectedIndexes].sort((first, second) => first - second).map((index) => datePairs[index]);
+}
+
 function sumSegmentDurations(segments: SerpApiFlightSegment[]) {
   return segments.reduce((total, segment) => total + (segment.duration ?? 0), 0);
 }
 
 function getDate(dateTime?: string) {
   return dateTime?.slice(0, 10) ?? "";
+}
+
+function parseDate(date: string) {
+  return new Date(`${date}T00:00:00.000Z`);
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setUTCDate(nextDate.getUTCDate() + days);
+
+  return nextDate;
+}
+
+function differenceInDays(startDate: Date, endDate: Date) {
+  const millisecondsInDay = 24 * 60 * 60 * 1000;
+
+  return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / millisecondsInDay));
+}
+
+function formatDate(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
