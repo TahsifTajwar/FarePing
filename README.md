@@ -36,6 +36,8 @@ FLIGHT_PROVIDER=mock
 
 Later, real providers like Amadeus can be added behind the same search interface without changing the frontend, saved-search checks, scoring, or SMS alert flow.
 
+Manual searches use `FLIGHT_PROVIDER`. Scheduled saved-search checks use `SCHEDULED_FLIGHT_PROVIDER`, which should stay `mock` during paid API testing unless you intentionally want the cron job to spend real API credits.
+
 To test Amadeus instead of mock data, create an Amadeus Self-Service test app and set:
 
 ```env
@@ -46,6 +48,17 @@ AMADEUS_CLIENT_SECRET=
 ```
 
 The first Amadeus provider searches exact dates only. For round trips, it checks one normal round-trip result set and separate outbound/return one-way result sets so FarePing can compare split one-way tickets.
+
+To test SerpApi Google Flights results:
+
+```env
+FLIGHT_PROVIDER=serpapi
+SCHEDULED_FLIGHT_PROVIDER=mock
+SERPAPI_BASE_URL=https://serpapi.com
+SERPAPI_API_KEY=
+```
+
+The first SerpApi provider uses exact dates and passes multiple origin/destination airports as comma-separated Google Flights parameters. For round trips, it also checks outbound and return one-way results so FarePing can compare split one-way tickets.
 
 ## SMS Setup
 

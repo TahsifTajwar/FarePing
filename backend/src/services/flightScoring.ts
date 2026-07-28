@@ -18,20 +18,26 @@ export function scoreFilterAndSortResults(
       ? allowedByStay
       : allowedByStay.filter((result) => result.legs.every((leg) => leg.stops <= maxStops));
   const shortestDuration = Math.min(...allowedByStops.map((result) => result.totalDurationMinutes));
+  const cheapestPrice = Math.min(...allowedByStops.map((result) => result.totalPrice));
 
   return allowedByStops
-    .map((result) => addDealScore(result, search, shortestDuration))
-    .filter((result) => result.dealScore >= MIN_VISIBLE_DEAL_SCORE && scorePrice(result.totalPrice, search.maxPrice) > 0)
+    .map((result) => addDealScore(result, search, shortestDuration, cheapestPrice))
+    .filter(
+      (result) =>
+        result.dealScore >= MIN_VISIBLE_DEAL_SCORE &&
+        scorePrice(result.totalPrice, search.maxPrice, cheapestPrice) > 0
+    )
     .sort((first, second) => second.dealScore - first.dealScore);
 }
 
 function addDealScore(
   itinerary: UnscoredItinerary,
   search: FlightSearchInput,
-  shortestDuration: number
+  shortestDuration: number,
+  cheapestPrice: number
 ): Itinerary {
   const dealScore =
-    scorePrice(itinerary.totalPrice, search.maxPrice) +
+    scorePrice(itinerary.totalPrice, search.maxPrice, cheapestPrice) +
     scoreDuration(itinerary.totalDurationMinutes, shortestDuration) +
     scoreStops(itinerary.legs.reduce((totalStops, leg) => totalStops + leg.stops, 0)) +
     scoreStayFit(itinerary, search) +
@@ -46,10 +52,16 @@ function addDealScore(
   };
 }
 
-function scorePrice(totalPrice: number, maxPrice: number) {
+function scorePrice(totalPrice: number, maxPrice: number, cheapestPrice: number) {
+  if (!Number.isFinite(cheapestPrice) || cheapestPrice <= 0) {
+    return 0;
+  }
+
   if (totalPrice <= maxPrice) {
-    const savingsRatio = clamp((maxPrice - totalPrice) / maxPrice, 0, 0.4);
-    return Math.round(240 + (savingsRatio / 0.4) * 110);
+    const budgetScore = 210 * clamp(1 - totalPrice / maxPrice, 0, 1);
+    const cheapestResultScore = 140 * clamp(cheapestPrice / totalPrice, 0, 1);
+
+    return Math.round(budgetScore + cheapestResultScore);
   }
 
   const amountOverBudget = totalPrice - maxPrice;
@@ -187,7 +199,7 @@ function buildWarning(itinerary: UnscoredItinerary, search: FlightSearchInput) {
   }
 
   if (!itinerary.carryOnIncluded) {
-    warnings.push("Carry-on is not included in this mock fare.");
+    warnings.push("Carry-on is not included in this fare.");
   }
 
   return warnings.length > 0 ? warnings.join(" ") : null;

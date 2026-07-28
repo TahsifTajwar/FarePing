@@ -1,3 +1,4 @@
+import { env } from "../config/env.js";
 import { prisma } from "../db/prisma.js";
 import {
   type FlightSearchInput,
@@ -55,7 +56,7 @@ export async function checkAllActiveSavedSearches() {
 }
 
 export async function checkSavedSearch(savedSearch: SavedSearchForCheck) {
-  const flightResults = await searchFlights(buildFlightSearchInput(savedSearch));
+  const flightResults = await searchFlights(buildFlightSearchInput(savedSearch), env.SCHEDULED_FLIGHT_PROVIDER);
 
   const resultBatch = await prisma.searchResultBatch.create({
     data: {
