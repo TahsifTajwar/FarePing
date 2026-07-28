@@ -1,9 +1,9 @@
 import { prisma } from "../db/prisma.js";
 import {
   type FlightSearchInput,
-  type MockItinerary,
-  runMockFlightSearch
-} from "./mockFlightSearch.js";
+  type Itinerary
+} from "./flightProviders/types.js";
+import { searchFlights } from "./flightSearch.js";
 import { maybeCreateNotification } from "./notificationDecision.js";
 
 type SavedSearchForCheck = {
@@ -55,14 +55,14 @@ export async function checkAllActiveSavedSearches() {
 }
 
 export async function checkSavedSearch(savedSearch: SavedSearchForCheck) {
-  const mockResults = runMockFlightSearch(buildFlightSearchInput(savedSearch));
+  const flightResults = await searchFlights(buildFlightSearchInput(savedSearch));
 
   const resultBatch = await prisma.searchResultBatch.create({
     data: {
       savedSearchId: savedSearch.id,
-      bestPrice: mockResults[0]?.totalPrice ?? null,
+      bestPrice: flightResults[0]?.totalPrice ?? null,
       itineraries: {
-        create: mockResults.map((itinerary) => buildItineraryCreateInput(itinerary))
+        create: flightResults.map((itinerary) => buildItineraryCreateInput(itinerary))
       }
     },
     include: {
@@ -104,7 +104,7 @@ function buildFlightSearchInput(savedSearch: SavedSearchForCheck): FlightSearchI
   };
 }
 
-function buildItineraryCreateInput(itinerary: MockItinerary) {
+function buildItineraryCreateInput(itinerary: Itinerary) {
   return {
     type: itinerary.type,
     totalPrice: itinerary.totalPrice,

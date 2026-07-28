@@ -6,6 +6,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   FRONTEND_ORIGIN: z.string().url().default("http://localhost:3000"),
   DATABASE_URL: z.string().optional(),
+  FLIGHT_PROVIDER: z.enum(["mock"]).default("mock"),
   AMADEUS_CLIENT_ID: z.string().optional(),
   AMADEUS_CLIENT_SECRET: z.string().optional(),
   TWILIO_ACCOUNT_SID: z.string().optional(),

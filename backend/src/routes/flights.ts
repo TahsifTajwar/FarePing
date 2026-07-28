@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { runMockFlightSearch } from "../services/mockFlightSearch.js";
+import { searchFlights } from "../services/flightSearch.js";
 
 export const flightsRouter = Router();
 
@@ -41,10 +41,11 @@ const flightSearchSchema = z
 
 type FlightSearch = z.infer<typeof flightSearchSchema>;
 
-flightsRouter.post("/search", (req, res) => {
+flightsRouter.post("/search", async (req, res) => {
   const search = flightSearchSchema.parse(req.body);
+  const results = await searchFlights(search);
 
   res.json({
-    results: runMockFlightSearch(search)
+    results
   });
 });

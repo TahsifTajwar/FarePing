@@ -26,6 +26,16 @@ npm run dev
 
 Copy `backend/.env.example` to `backend/.env` before connecting real flight data, PostgreSQL, or SMS credentials.
 
+## Flight Providers
+
+FarePing routes flight searches through a provider layer. The app uses the mock provider by default:
+
+```env
+FLIGHT_PROVIDER=mock
+```
+
+Later, real providers like Amadeus can be added behind the same search interface without changing the frontend, saved-search checks, scoring, or SMS alert flow.
+
 ## SMS Setup
 
 FarePing can send SMS alerts through Twilio after a saved flight alert passes the backend notification rules.
