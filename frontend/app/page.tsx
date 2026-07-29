@@ -31,6 +31,8 @@ type TripDraft = {
   maxTripDays: number | null;
   maxPrice: number | null;
   phone: string | null;
+  minTripDaysProvided: boolean;
+  maxTripDaysProvided: boolean;
   maxTripDaysFlexible: boolean;
 };
 
@@ -154,6 +156,8 @@ export default function Home() {
   const [latestReturnDate, setLatestReturnDate] = useState("");
   const [minTripDays, setMinTripDays] = useState("");
   const [maxTripDays, setMaxTripDays] = useState("");
+  const [minTripDaysProvided, setMinTripDaysProvided] = useState(false);
+  const [maxTripDaysProvided, setMaxTripDaysProvided] = useState(false);
   const [maxTripDaysFlexible, setMaxTripDaysFlexible] = useState(false);
   const [maxPrice, setMaxPrice] = useState("");
   const [phone, setPhone] = useState("");
@@ -177,6 +181,7 @@ export default function Home() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatReadyToSearch, setChatReadyToSearch] = useState(false);
   const [chatTripTypeSet, setChatTripTypeSet] = useState(false);
+  const [chatAwaitingPhoneForAlert, setChatAwaitingPhoneForAlert] = useState(false);
   const [chatStatus, setChatStatus] = useState("");
   const [chatError, setChatError] = useState("");
   const [pendingAirportSelection, setPendingAirportSelection] =
@@ -209,7 +214,9 @@ export default function Home() {
     }
   }
 
-  function buildSearchRequestBody(includeContactPhone = false) {
+  function buildSearchRequestBody(includeContactPhone = false, contactPhoneOverride?: string) {
+    const contactPhone = contactPhoneOverride ?? phone.trim();
+
     return {
       tripType,
       originAirports: parseAirportCodes(originAirport),
@@ -225,7 +232,7 @@ export default function Home() {
         : {}),
       maxPrice: Number(maxPrice),
       maxStops: 1,
-      ...(includeContactPhone && phone.trim() ? { contactPhone: phone.trim() } : {})
+      ...(includeContactPhone && contactPhone ? { contactPhone } : {})
     };
   }
 
@@ -248,6 +255,10 @@ export default function Home() {
     return /^\d{4}-\d{2}-\d{2}$/.test(date);
   }
 
+  function isSkipAnswer(answer: string) {
+    return ["skip", "cancel", "no", "nah", "not now", "later"].includes(answer.trim().toLowerCase());
+  }
+
   function getSearchValidationError() {
     if (parseAirportCodes(originAirport).length === 0) {
       return "I need at least one origin airport or city.";
@@ -266,11 +277,11 @@ export default function Home() {
         return "Latest return needs to be in YYYY-MM-DD format.";
       }
 
-      if (!Number(minTripDays)) {
+      if (!Number(minTripDays) || !minTripDaysProvided) {
         return "Minimum stay days needs to be a number.";
       }
 
-      if (!Number(maxTripDays) && !maxTripDaysFlexible) {
+      if ((!Number(maxTripDays) || !maxTripDaysProvided) && !maxTripDaysFlexible) {
         return "Maximum stay days needs to be a number. This helps FarePing score trip length correctly.";
       }
     }
@@ -294,6 +305,8 @@ export default function Home() {
       maxTripDays: maxTripDays ? Number(maxTripDays) : null,
       maxPrice: maxPrice ? Number(maxPrice) : null,
       phone: phone.trim() || null,
+      minTripDaysProvided,
+      maxTripDaysProvided,
       maxTripDaysFlexible
     };
   }
@@ -317,6 +330,8 @@ export default function Home() {
     setLatestReturnDate(draft.tripType === "ROUND_TRIP" ? draft.latestReturnDate ?? "" : "");
     setMinTripDays(draft.tripType === "ROUND_TRIP" && draft.minTripDays ? String(draft.minTripDays) : "");
     setMaxTripDays(draft.tripType === "ROUND_TRIP" && draft.maxTripDays ? String(draft.maxTripDays) : "");
+    setMinTripDaysProvided(draft.tripType === "ROUND_TRIP" ? draft.minTripDaysProvided : false);
+    setMaxTripDaysProvided(draft.tripType === "ROUND_TRIP" ? draft.maxTripDaysProvided : false);
     setMaxTripDaysFlexible(draft.tripType === "ROUND_TRIP" ? draft.maxTripDaysFlexible : false);
 
     setMaxPrice(draft.maxPrice ? String(draft.maxPrice) : "");
@@ -361,7 +376,15 @@ export default function Home() {
       return false;
     }
 
-    if (draft.tripType === "ROUND_TRIP" && !draft.maxTripDays && !draft.maxTripDaysFlexible) {
+    if (draft.tripType === "ROUND_TRIP" && (!draft.minTripDays || !draft.minTripDaysProvided)) {
+      return false;
+    }
+
+    if (
+      draft.tripType === "ROUND_TRIP" &&
+      (!draft.maxTripDays || !draft.maxTripDaysProvided) &&
+      !draft.maxTripDaysFlexible
+    ) {
       return false;
     }
 
@@ -460,6 +483,37 @@ export default function Home() {
     }
 
     const answer = chatInput.trim();
+    appendChatMessage("user", answer);
+    setChatInput("");
+    setChatError("");
+    setChatStatus("");
+
+    if (chatAwaitingPhoneForAlert) {
+      if (isSkipAnswer(answer)) {
+        setChatAwaitingPhoneForAlert(false);
+        appendChatMessage("assistant", "No problem. I will leave alerts off for now.");
+        return;
+      }
+
+      setPhone(answer);
+      setChatAwaitingPhoneForAlert(false);
+      setChatLoading(true);
+
+      try {
+        const saveSucceeded = await saveFlightAlert(answer);
+
+        if (saveSucceeded) {
+          appendChatMessage("assistant", "Alerts are on. I saved this trip and can text you when a strong match appears.");
+        } else {
+          setChatError("I could not save this alert. Check the phone number and try again.");
+        }
+      } finally {
+        setChatLoading(false);
+      }
+
+      return;
+    }
+
     const conversation = [
       ...chatMessages.map((message) => ({
         role: message.role,
@@ -471,10 +525,6 @@ export default function Home() {
       }
     ];
 
-    appendChatMessage("user", answer);
-    setChatInput("");
-    setChatError("");
-    setChatStatus("");
     setChatLoading(true);
     setPendingAirportSelection(null);
     setAirportSelectionQueue([]);
@@ -526,6 +576,7 @@ export default function Home() {
     setChatLoading(false);
     setChatReadyToSearch(false);
     setChatTripTypeSet(false);
+    setChatAwaitingPhoneForAlert(false);
     setChatStatus("");
     setChatError("");
     setPendingAirportSelection(null);
@@ -538,6 +589,8 @@ export default function Home() {
     setLatestReturnDate("");
     setMinTripDays("");
     setMaxTripDays("");
+    setMinTripDaysProvided(false);
+    setMaxTripDaysProvided(false);
     setMaxTripDaysFlexible(false);
     setMaxPrice("");
     setPhone("");
@@ -626,7 +679,7 @@ export default function Home() {
     }
   }
 
-  async function saveFlightAlert() {
+  async function saveFlightAlert(contactPhoneOverride?: string) {
     setSaving(true);
     setSaveMessage("");
     setSaveError("");
@@ -637,7 +690,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(buildSearchRequestBody(true))
+        body: JSON.stringify(buildSearchRequestBody(true, contactPhoneOverride))
       });
 
       if (!response.ok) {
@@ -689,7 +742,19 @@ export default function Home() {
     const searchSucceeded = await runFlightSearch();
 
     if (searchSucceeded) {
-      setChatStatus("I found the best current options below. Turn alerts on if you want me to keep watching this trip.");
+      if (phone.trim()) {
+        appendChatMessage(
+          "assistant",
+          "I found the best current options below. Want me to keep watching this trip and text you when a strong deal appears?"
+        );
+        setChatStatus("Use Turn alerts on if you want FarePing to watch this trip.");
+      } else {
+        setChatAwaitingPhoneForAlert(true);
+        appendChatMessage(
+          "assistant",
+          "I found the best current options below. If you want SMS alerts for this trip, send the phone number to text. You can also type skip."
+        );
+      }
     }
   }
 
@@ -702,7 +767,9 @@ export default function Home() {
     }
 
     if (!phone.trim()) {
-      setChatError("Add a phone number in the chat or form before turning SMS alerts on.");
+      setChatAwaitingPhoneForAlert(true);
+      setChatError("");
+      appendChatMessage("assistant", "What phone number should I text for this alert? You can type skip to cancel.");
       return;
     }
 
@@ -711,7 +778,8 @@ export default function Home() {
     const saveSucceeded = await saveFlightAlert();
 
     if (saveSucceeded) {
-      setChatStatus("Alerts are on. I saved this trip and FarePing can text you when a strong match appears.");
+      appendChatMessage("assistant", "Alerts are on. I saved this trip and can text you when a strong match appears.");
+      setChatStatus("Flight alert saved.");
     }
   }
 

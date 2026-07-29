@@ -12,6 +12,8 @@ export type TripDraft = {
   maxTripDays: number | null;
   maxPrice: number | null;
   phone: string | null;
+  minTripDaysProvided: boolean;
+  maxTripDaysProvided: boolean;
   maxTripDaysFlexible: boolean;
 };
 
@@ -56,6 +58,8 @@ const emptyTripDraft: TripDraft = {
   maxTripDays: null,
   maxPrice: null,
   phone: null,
+  minTripDaysProvided: false,
+  maxTripDaysProvided: false,
   maxTripDaysFlexible: false
 };
 
@@ -86,6 +90,8 @@ const tripAssistantResponseSchema = {
         "maxTripDays",
         "maxPrice",
         "phone",
+        "minTripDaysProvided",
+        "maxTripDaysProvided",
         "maxTripDaysFlexible"
       ],
       properties: {
@@ -99,6 +105,8 @@ const tripAssistantResponseSchema = {
         maxTripDays: { type: ["integer", "null"] },
         maxPrice: { type: ["number", "null"] },
         phone: { type: ["string", "null"] },
+        minTripDaysProvided: { type: "boolean" },
+        maxTripDaysProvided: { type: "boolean" },
         maxTripDaysFlexible: { type: "boolean" }
       }
     },
@@ -230,11 +238,11 @@ function getMissingFields(
       missingFields.push("latestReturnDate");
     }
 
-    if (!tripDraft.minTripDays) {
+    if (!tripDraft.minTripDays || !tripDraft.minTripDaysProvided) {
       missingFields.push("minTripDays");
     }
 
-    if (!tripDraft.maxTripDays && !tripDraft.maxTripDaysFlexible) {
+    if ((!tripDraft.maxTripDays || !tripDraft.maxTripDaysProvided) && !tripDraft.maxTripDaysFlexible) {
       missingFields.push("maxTripDays");
     }
   }
@@ -319,8 +327,9 @@ function buildSystemPrompt() {
     "Use ROUND_TRIP for round trips and ONE_WAY for one-way trips.",
     "For ONE_WAY searches, do not require return date, min stay days, or max stay days.",
     "For ROUND_TRIP searches, collect earliest departure date, latest return date, min trip days, max trip days, and max price.",
+    "For ROUND_TRIP searches, do not infer minTripDays or maxTripDays from the departure and return dates. Only set minTripDaysProvided or maxTripDaysProvided to true if the user explicitly says a stay length preference.",
     "For ROUND_TRIP searches, do not assume missing max trip days means flexible. Ask for maxTripDays unless the user explicitly says max stay is flexible, open, or unlimited.",
-    "If the user explicitly says max stay is flexible, open, unlimited, skip, none, no max, or they do not care, set maxTripDays to null and maxTripDaysFlexible to true.",
+    "If the user explicitly says max stay is flexible, open, unlimited, skip, none, no max, or they do not care, set maxTripDays to null, maxTripDaysProvided to false, and maxTripDaysFlexible to true.",
     "Phone is not required to search current flights, but it is required to save SMS alerts.",
     "Do not ask for a phone number until the current flight search details are complete, unless the user's only missing alert detail is phone.",
     "If maxTripDays and phone are both missing for a round trip, ask for maxTripDays first.",
@@ -335,12 +344,22 @@ function resolveAirportQueries(queries: string[]) {
   const airports = new Map<string, AirportMatch>();
 
   queries.forEach((query) => {
-    resolveAirports(query, 8).forEach((airport) => {
+    resolveAirports(normalizeAirportQuery(query), 8).forEach((airport) => {
       airports.set(airport.iataCode, airport);
     });
   });
 
   return [...airports.values()];
+}
+
+function normalizeAirportQuery(query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (normalizedQuery === "vegas" || normalizedQuery === "las veg") {
+    return "Las Vegas";
+  }
+
+  return query;
 }
 
 function normalizeAirportCodes(airports: string[]) {

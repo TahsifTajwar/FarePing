@@ -34,6 +34,16 @@ const usStateRegions: Record<string, string> = {
   utah: "US-UT",
   washington: "US-WA"
 };
+const airportAliases: Record<string, string[]> = {
+  la: ["LAX", "BUR", "LGB", "SNA", "ONT"],
+  lax: ["LAX"],
+  "los angeles": ["LAX", "BUR", "LGB", "SNA", "ONT"],
+  nyc: ["JFK", "LGA", "EWR"],
+  "new york city": ["JFK", "LGA", "EWR"],
+  vegas: ["LAS"],
+  "las vegas": ["LAS"],
+  "las veg": ["LAS"]
+};
 
 let airportCache: AirportRecord[] | null = null;
 
@@ -68,6 +78,16 @@ export function resolveAirports(query: string, limit = 8): AirportMatch[] {
 
 function resolveSearchPart(searchPart: string) {
   const airports = getAirports();
+  const aliasCodes = airportAliases[searchPart];
+
+  if (aliasCodes) {
+    return aliasCodes.flatMap((code, index) =>
+      airports
+        .filter((airport) => airport.iataCode === code)
+        .map((airport) => ({ airport, score: 1100 - index }))
+    );
+  }
+
   const exactCodeMatches = airports
     .filter((airport) => searchPart.toUpperCase() === airport.iataCode)
     .map((airport) => ({ airport, score: 1000 + getAirportTypeScore(airport.type) }));
@@ -144,6 +164,12 @@ function buildAirportRecord(headers: string[], values: string[]) {
 }
 
 function buildSearchParts(query: string) {
+  const normalizedQuery = normalize(query);
+
+  if (airportAliases[normalizedQuery]) {
+    return [normalizedQuery];
+  }
+
   const parts = query
     .split(/\s+(?:or|and)\s+|[,/;]+/i)
     .map((part) => normalize(part))
