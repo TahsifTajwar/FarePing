@@ -8,9 +8,23 @@ import {
 
 export const savedSearchesRouter = Router();
 
+const phoneNumberSchema = z
+  .string()
+  .trim()
+  .refine((phoneNumber) => /^[+\d\s().-]+$/.test(phoneNumber), {
+    message: "contactPhone can only contain phone number characters."
+  })
+  .refine((phoneNumber) => {
+    const digitCount = phoneNumber.replace(/\D/g, "").length;
+
+    return digitCount >= 10 && digitCount <= 15;
+  }, {
+    message: "contactPhone must contain 10 to 15 digits."
+  });
+
 const savedSearchSchema = z
   .object({
-    contactPhone: z.string().min(7).optional(),
+    contactPhone: phoneNumberSchema.optional(),
     tripType: z.enum(["ROUND_TRIP", "ONE_WAY"]),
     originAirports: z.array(z.string().min(3)).min(1),
     destinationAirports: z.array(z.string().min(3)).min(1),
@@ -49,7 +63,20 @@ const updateSavedSearchSchema = z.object({
 });
 
 savedSearchesRouter.post("/", async (req, res) => {
-  const input = savedSearchSchema.parse(req.body);
+  const parsedInput = savedSearchSchema.safeParse(req.body);
+
+  if (!parsedInput.success) {
+    res.status(400).json({
+      message: "Saved search request is invalid.",
+      issues: parsedInput.error.issues.map((issue) => ({
+        path: issue.path,
+        message: issue.message
+      }))
+    });
+    return;
+  }
+
+  const input = parsedInput.data;
 
   const savedSearch = await prisma.savedSearch.create({
     data: {
