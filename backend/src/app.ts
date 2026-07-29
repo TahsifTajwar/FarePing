@@ -6,6 +6,7 @@ import { flightsRouter } from "./routes/flights.js";
 import { healthRouter } from "./routes/health.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { savedSearchesRouter } from "./routes/savedSearches.js";
+import { tripAssistantRouter } from "./routes/tripAssistant.js";
 
 export const app = express();
 
@@ -17,3 +18,4 @@ app.use("/api/flights", flightsRouter);
 app.use("/api/health", healthRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/saved-searches", savedSearchesRouter);
+app.use("/api/trip-assistant", tripAssistantRouter);

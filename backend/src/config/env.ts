@@ -14,6 +14,8 @@ const envSchema = z.object({
   SERPAPI_BASE_URL: z.string().url().default("https://serpapi.com"),
   SERPAPI_API_KEY: z.string().optional(),
   MAX_SERPAPI_DATE_PAIRS: z.coerce.number().int().positive().max(10).default(3),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default("gpt-5.6-luna"),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM_NUMBER: z.string().optional(),
@@ -25,3 +27,5 @@ export const env = envSchema.parse(process.env);
 export const smsConfigured = Boolean(
   env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && env.TWILIO_FROM_NUMBER
 );
+
+export const openAiConfigured = Boolean(env.OPENAI_API_KEY);

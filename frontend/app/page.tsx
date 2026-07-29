@@ -1,21 +1,9 @@
 "use client";
 
-import { type FormEvent, type MouseEvent, useEffect, useState } from "react";
+import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { Bell, MessageCircle, Plane, RefreshCw, Search, Sparkles } from "lucide-react";
 
 type TripType = "ROUND_TRIP" | "ONE_WAY";
-type ChatStep =
-  | "TRIP_TYPE"
-  | "ORIGINS"
-  | "DESTINATIONS"
-  | "DEPARTURE"
-  | "LATEST_DEPARTURE"
-  | "RETURN"
-  | "MIN_STAY"
-  | "MAX_STAY"
-  | "BUDGET"
-  | "PHONE"
-  | "READY";
 
 type ChatMessage = {
   id: string;
@@ -32,13 +20,34 @@ type AirportMatch = {
   type: string;
 };
 
-type ChatAnswerResult = {
-  message: string;
-  pause: boolean;
+type TripDraft = {
+  tripType: TripType | null;
+  originAirports: string[];
+  destinationAirports: string[];
+  earliestDepartDate: string | null;
+  latestDepartDate: string | null;
+  latestReturnDate: string | null;
+  minTripDays: number | null;
+  maxTripDays: number | null;
+  maxPrice: number | null;
+  phone: string | null;
+  maxTripDaysFlexible: boolean;
+};
+
+type TripAssistantResponse = {
+  reply: string;
+  tripDraft: TripDraft;
+  missingFields: string[];
+  readyToSearch: boolean;
+  readyToSaveAlert: boolean;
+  airportOptions: {
+    origins: AirportMatch[];
+    destinations: AirportMatch[];
+  };
 };
 
 type PendingAirportSelection = {
-  targetStep: "ORIGINS" | "DESTINATIONS";
+  target: "ORIGINS" | "DESTINATIONS";
   matches: AirportMatch[];
   selectedCodes: string[];
 };
@@ -79,7 +88,7 @@ const initialChatMessages: ChatMessage[] = [
   {
     id: "assistant-start",
     role: "assistant",
-    text: "Tell me what kind of trip this is. Round trip or one way?"
+    text: "Tell me the trip you want to watch. You can write it normally, like cities, dates, budget, and whether it is one way or round trip."
   }
 ];
 
@@ -143,9 +152,10 @@ export default function Home() {
   const [earliestDepartDate, setEarliestDepartDate] = useState("");
   const [latestDepartDate, setLatestDepartDate] = useState("");
   const [latestReturnDate, setLatestReturnDate] = useState("");
-  const [minTripDays, setMinTripDays] = useState("3");
+  const [minTripDays, setMinTripDays] = useState("");
   const [maxTripDays, setMaxTripDays] = useState("");
-  const [maxPrice, setMaxPrice] = useState("600");
+  const [maxTripDaysFlexible, setMaxTripDaysFlexible] = useState(false);
+  const [maxPrice, setMaxPrice] = useState("");
   const [phone, setPhone] = useState("");
   const [results, setResults] = useState<Itinerary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -161,16 +171,28 @@ export default function Home() {
     Record<string, SavedResultBatch>
   >({});
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialChatMessages);
-  const [chatStep, setChatStep] = useState<ChatStep>("TRIP_TYPE");
   const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatReadyToSearch, setChatReadyToSearch] = useState(false);
+  const [chatTripTypeSet, setChatTripTypeSet] = useState(false);
   const [chatStatus, setChatStatus] = useState("");
   const [chatError, setChatError] = useState("");
   const [pendingAirportSelection, setPendingAirportSelection] =
     useState<PendingAirportSelection | null>(null);
+  const [airportSelectionQueue, setAirportSelectionQueue] = useState<PendingAirportSelection[]>([]);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void fetchSavedSearches();
   }, []);
+
+  useEffect(() => {
+    const chatMessagesElement = chatMessagesRef.current;
+
+    if (chatMessagesElement) {
+      chatMessagesElement.scrollTop = chatMessagesElement.scrollHeight;
+    }
+  }, [chatMessages, pendingAirportSelection, chatReadyToSearch]);
 
   function handleTripTypeChange(nextTripType: TripType) {
     setTripType(nextTripType);
@@ -196,7 +218,7 @@ export default function Home() {
         ? {
             latestReturnDate,
             minTripDays: Number(minTripDays),
-            ...(maxTripDays ? { maxTripDays: Number(maxTripDays) } : {})
+            ...(!maxTripDaysFlexible && maxTripDays ? { maxTripDays: Number(maxTripDays) } : {})
           }
         : {}),
       maxPrice: Number(maxPrice),
@@ -218,23 +240,6 @@ export default function Home() {
 
   function parseAirportCodes(input: string) {
     return [...new Set(input.toUpperCase().match(/\b[A-Z]{3}\b/g) ?? [])];
-  }
-
-  async function resolveAirportsFromText(input: string) {
-    const response = await fetch(
-      `http://localhost:4000/api/airports/resolve?q=${encodeURIComponent(input)}&limit=6`
-    );
-
-    if (!response.ok) {
-      throw new Error("Could not resolve airports from that answer.");
-    }
-
-    const data = (await response.json()) as { airports: AirportMatch[] };
-    return data.airports;
-  }
-
-  function isSkipAnswer(answer: string) {
-    return ["skip", "none", "no", "nah", "n/a", "na"].includes(answer.trim().toLowerCase());
   }
 
   function isValidDateString(date: string) {
@@ -262,6 +267,10 @@ export default function Home() {
       if (!Number(minTripDays)) {
         return "Minimum stay days needs to be a number.";
       }
+
+      if (!Number(maxTripDays) && !maxTripDaysFlexible) {
+        return "Maximum stay days needs to be a number. This helps FarePing score trip length correctly.";
+      }
     }
 
     if (!Number(maxPrice)) {
@@ -271,193 +280,94 @@ export default function Home() {
     return "";
   }
 
-  function buildTripSummary() {
-    const originAirports = parseAirportCodes(originAirport);
-    const destinationAirports = parseAirportCodes(destinationAirport);
-    const stayText =
-      tripType === "ROUND_TRIP"
-        ? ` Stay ${minTripDays}${maxTripDays ? `-${maxTripDays}` : "+"} days.`
-        : latestDepartDate
-          ? ` Depart by ${latestDepartDate}.`
-          : "";
-
-    return `${tripType === "ROUND_TRIP" ? "Round trip" : "One way"} from ${originAirports.join(", ")} to ${destinationAirports.join(", ")}. Depart from ${earliestDepartDate}.${tripType === "ROUND_TRIP" ? ` Return by ${latestReturnDate}.` : ""}${stayText} Budget USD ${maxPrice}.`;
-  }
-
-  function getNextChatStep(currentStep: ChatStep): ChatStep {
-    if (currentStep === "TRIP_TYPE") {
-      return "ORIGINS";
-    }
-
-    if (currentStep === "ORIGINS") {
-      return "DESTINATIONS";
-    }
-
-    if (currentStep === "DESTINATIONS") {
-      return "DEPARTURE";
-    }
-
-    if (currentStep === "DEPARTURE") {
-      return tripType === "ROUND_TRIP" ? "RETURN" : "LATEST_DEPARTURE";
-    }
-
-    if (currentStep === "LATEST_DEPARTURE") {
-      return "BUDGET";
-    }
-
-    if (currentStep === "RETURN") {
-      return "MIN_STAY";
-    }
-
-    if (currentStep === "MIN_STAY") {
-      return "MAX_STAY";
-    }
-
-    if (currentStep === "MAX_STAY") {
-      return "BUDGET";
-    }
-
-    if (currentStep === "BUDGET") {
-      return "PHONE";
-    }
-
-    return "READY";
-  }
-
-  function getPromptForStep(step: ChatStep) {
-    const prompts: Record<ChatStep, string> = {
-      TRIP_TYPE: "Round trip or one way?",
-      ORIGINS: "Where can you leave from? You can type cities or airport codes, like Boston, Hartford, BOS, BDL.",
-      DESTINATIONS: "Where do you want to go? You can give multiple options, like Utah or Las Vegas.",
-      DEPARTURE: "What is the earliest departure date? Use YYYY-MM-DD for now.",
-      LATEST_DEPARTURE: "Optional: what is the latest departure date? Type skip if you do not care.",
-      RETURN: "What is the latest return date? Use YYYY-MM-DD.",
-      MIN_STAY: "What is the minimum number of stay days?",
-      MAX_STAY: "Optional: what is the maximum number of stay days? Type skip if flexible.",
-      BUDGET: "What is the max budget per person in USD?",
-      PHONE: "Optional: what phone number should get text alerts? Type skip if you only want results right now.",
-      READY: "I have enough to search current best flights. Run the search now, then you can turn alerts on if you like."
+  function buildCurrentTripDraft(): TripDraft {
+    return {
+      tripType: chatTripTypeSet ? tripType : null,
+      originAirports: parseAirportCodes(originAirport),
+      destinationAirports: parseAirportCodes(destinationAirport),
+      earliestDepartDate: earliestDepartDate || null,
+      latestDepartDate: latestDepartDate || null,
+      latestReturnDate: latestReturnDate || null,
+      minTripDays: minTripDays ? Number(minTripDays) : null,
+      maxTripDays: maxTripDays ? Number(maxTripDays) : null,
+      maxPrice: maxPrice ? Number(maxPrice) : null,
+      phone: phone.trim() || null,
+      maxTripDaysFlexible
     };
-
-    return prompts[step];
   }
 
-  async function applyChatAnswer(step: ChatStep, answer: string): Promise<ChatAnswerResult> {
-    const trimmedAnswer = answer.trim();
-
-    if (step === "TRIP_TYPE") {
-      const lowerAnswer = trimmedAnswer.toLowerCase();
-
-      if (lowerAnswer.includes("one")) {
-        handleTripTypeChange("ONE_WAY");
-      } else if (lowerAnswer.includes("round") || lowerAnswer.includes("return")) {
-        handleTripTypeChange("ROUND_TRIP");
-      } else {
-        return { message: "Please answer round trip or one way.", pause: true };
-      }
+  function applyTripDraftToForm(draft: TripDraft) {
+    if (draft.tripType) {
+      setChatTripTypeSet(true);
+      handleTripTypeChange(draft.tripType);
     }
 
-    if (step === "ORIGINS") {
-      const airports = await resolveAirportsFromText(trimmedAnswer);
+    if (draft.originAirports.length > 0) {
+      setOriginAirport(draft.originAirports.join(", "));
+    }
 
-      if (airports.length === 0) {
-        throw new Error("I could not find an airport code from that. Try BOS, BDL, Boston, or Hartford.");
-      }
+    if (draft.destinationAirports.length > 0) {
+      setDestinationAirport(draft.destinationAirports.join(", "));
+    }
 
-      setPendingAirportSelection({
-        targetStep: "ORIGINS",
-        matches: airports,
-        selectedCodes: buildDefaultSelectedAirportCodes(airports)
+    setEarliestDepartDate(draft.earliestDepartDate ?? "");
+    setLatestDepartDate(draft.tripType === "ONE_WAY" ? draft.latestDepartDate ?? "" : "");
+    setLatestReturnDate(draft.tripType === "ROUND_TRIP" ? draft.latestReturnDate ?? "" : "");
+    setMinTripDays(draft.tripType === "ROUND_TRIP" && draft.minTripDays ? String(draft.minTripDays) : "");
+    setMaxTripDays(draft.tripType === "ROUND_TRIP" && draft.maxTripDays ? String(draft.maxTripDays) : "");
+    setMaxTripDaysFlexible(draft.tripType === "ROUND_TRIP" ? draft.maxTripDaysFlexible : false);
+
+    setMaxPrice(draft.maxPrice ? String(draft.maxPrice) : "");
+
+    if (draft.phone) {
+      setPhone(draft.phone);
+    }
+  }
+
+  function buildPendingAirportSelections(response: TripAssistantResponse) {
+    const selections: PendingAirportSelection[] = [];
+
+    if (
+      response.airportOptions.origins.length > 0 &&
+      response.tripDraft.originAirports.length === 0
+    ) {
+      selections.push({
+        target: "ORIGINS",
+        matches: response.airportOptions.origins,
+        selectedCodes: buildDefaultSelectedAirportCodes(response.airportOptions.origins)
       });
-      return {
-        message: `I found these departure airports. Choose the ones you can actually travel from.`,
-        pause: true
-      };
     }
 
-    if (step === "DESTINATIONS") {
-      const airports = await resolveAirportsFromText(trimmedAnswer);
-
-      if (airports.length === 0) {
-        throw new Error("I could not find a destination airport. Try SLC, LAS, Utah, or Las Vegas.");
-      }
-
-      setPendingAirportSelection({
-        targetStep: "DESTINATIONS",
-        matches: airports,
-        selectedCodes: buildDefaultSelectedAirportCodes(airports)
+    if (
+      response.airportOptions.destinations.length > 0 &&
+      response.tripDraft.destinationAirports.length === 0
+    ) {
+      selections.push({
+        target: "DESTINATIONS",
+        matches: response.airportOptions.destinations,
+        selectedCodes: buildDefaultSelectedAirportCodes(response.airportOptions.destinations)
       });
-      return {
-        message: `I found these destination airports. Choose the ones you want included.`,
-        pause: true
-      };
     }
 
-    if (step === "DEPARTURE") {
-      if (!isValidDateString(trimmedAnswer)) {
-        return { message: "Use YYYY-MM-DD for now, like 2026-11-24.", pause: true };
-      }
+    return selections;
+  }
 
-      setEarliestDepartDate(trimmedAnswer);
+  function getAssistantReadyToSearch(response: TripAssistantResponse) {
+    const draft = response.tripDraft;
+
+    if (!response.readyToSearch) {
+      return false;
     }
 
-    if (step === "LATEST_DEPARTURE") {
-      if (isSkipAnswer(trimmedAnswer)) {
-        setLatestDepartDate("");
-      } else if (!isValidDateString(trimmedAnswer)) {
-        return { message: "Use YYYY-MM-DD, or type skip.", pause: true };
-      } else {
-        setLatestDepartDate(trimmedAnswer);
-      }
+    if (draft.tripType === "ROUND_TRIP" && !draft.maxTripDays && !draft.maxTripDaysFlexible) {
+      return false;
     }
 
-    if (step === "RETURN") {
-      if (!isValidDateString(trimmedAnswer)) {
-        return { message: "Use YYYY-MM-DD for now, like 2026-11-30.", pause: true };
-      }
-
-      setLatestReturnDate(trimmedAnswer);
+    if (!draft.maxPrice) {
+      return false;
     }
 
-    if (step === "MIN_STAY") {
-      const days = Number(trimmedAnswer);
-
-      if (!Number.isInteger(days) || days <= 0) {
-        return { message: "Minimum stay needs to be a positive number, like 4.", pause: true };
-      }
-
-      setMinTripDays(String(days));
-    }
-
-    if (step === "MAX_STAY") {
-      if (isSkipAnswer(trimmedAnswer)) {
-        setMaxTripDays("");
-      } else {
-        const days = Number(trimmedAnswer);
-
-        if (!Number.isInteger(days) || days <= 0) {
-          return { message: "Maximum stay needs to be a positive number, or type skip.", pause: true };
-        }
-
-        setMaxTripDays(String(days));
-      }
-    }
-
-    if (step === "BUDGET") {
-      const budget = Number(trimmedAnswer.replace("$", ""));
-
-      if (!Number.isFinite(budget) || budget <= 0) {
-        return { message: "Budget needs to be a positive number, like 900.", pause: true };
-      }
-
-      setMaxPrice(String(budget));
-    }
-
-    if (step === "PHONE") {
-      setPhone(isSkipAnswer(trimmedAnswer) ? "" : trimmedAnswer);
-    }
-
-    return { message: "", pause: false };
+    return true;
   }
 
   function formatAirportMatches(airports: AirportMatch[]) {
@@ -510,74 +420,125 @@ export default function Home() {
     );
     const selectedCodes = selectedAirports.map((airport) => airport.iataCode).join(", ");
 
-    if (pendingAirportSelection.targetStep === "ORIGINS") {
+    if (pendingAirportSelection.target === "ORIGINS") {
       setOriginAirport(selectedCodes);
     } else {
       setDestinationAirport(selectedCodes);
     }
 
-    setPendingAirportSelection(null);
+    const nextAirportSelection = airportSelectionQueue[0] ?? null;
+    const remainingAirportSelections = airportSelectionQueue.slice(1);
+
+    setPendingAirportSelection(nextAirportSelection);
+    setAirportSelectionQueue(remainingAirportSelections);
     setChatError("");
 
-    const nextStep = getNextChatStep(pendingAirportSelection.targetStep);
-    setChatStep(nextStep);
-    appendChatMessage(
-      "assistant",
-      `I will use ${formatAirportMatches(selectedAirports)}. ${getPromptForStep(nextStep)}`
-    );
+    if (nextAirportSelection) {
+      appendChatMessage(
+        "assistant",
+        `I will use ${formatAirportMatches(selectedAirports)}. Now choose the ${
+          nextAirportSelection.target === "ORIGINS" ? "departure" : "destination"
+        } airports.`
+      );
+    } else if (chatReadyToSearch) {
+      appendChatMessage(
+        "assistant",
+        `I will use ${formatAirportMatches(selectedAirports)}. I can search the best current options now.`
+      );
+    } else {
+      appendChatMessage("assistant", `I will use ${formatAirportMatches(selectedAirports)}.`);
+    }
   }
 
   async function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!chatInput.trim() || chatStep === "READY" || pendingAirportSelection) {
+    if (!chatInput.trim() || pendingAirportSelection || chatLoading) {
       return;
     }
 
     const answer = chatInput.trim();
+    const conversation = [
+      ...chatMessages.map((message) => ({
+        role: message.role,
+        content: message.text
+      })),
+      {
+        role: "user" as const,
+        content: answer
+      }
+    ];
+
     appendChatMessage("user", answer);
     setChatInput("");
     setChatError("");
-
-    let answerResult: ChatAnswerResult;
+    setChatStatus("");
+    setChatLoading(true);
+    setPendingAirportSelection(null);
+    setAirportSelectionQueue([]);
 
     try {
-      answerResult = await applyChatAnswer(chatStep, answer);
-    } catch (airportError) {
-      appendChatMessage(
-        "assistant",
-        airportError instanceof Error
-          ? airportError.message
-          : "Something went wrong while resolving airports."
+      const response = await fetch("http://localhost:4000/api/trip-assistant/message", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          message: answer,
+          currentTripDraft: buildCurrentTripDraft(),
+          conversation
+        })
+      });
+
+      const data = (await response.json()) as TripAssistantResponse | { error?: string };
+
+      if (!response.ok) {
+        throw new Error("error" in data && data.error ? data.error : "The trip assistant could not answer.");
+      }
+
+      const assistantResponse = data as TripAssistantResponse;
+      const airportSelections = buildPendingAirportSelections(assistantResponse);
+
+      applyTripDraftToForm(assistantResponse.tripDraft);
+      setChatReadyToSearch(getAssistantReadyToSearch(assistantResponse));
+      appendChatMessage("assistant", assistantResponse.reply);
+
+      if (airportSelections.length > 0) {
+        setPendingAirportSelection(airportSelections[0]);
+        setAirportSelectionQueue(airportSelections.slice(1));
+      }
+    } catch (assistantError) {
+      setChatError(
+        assistantError instanceof Error
+          ? assistantError.message
+          : "Something went wrong while talking to the trip assistant."
       );
-      return;
-    }
-
-    if (answerResult.pause) {
-      appendChatMessage("assistant", answerResult.message);
-      return;
-    }
-
-    const nextStep = getNextChatStep(chatStep);
-    setChatStep(nextStep);
-
-    if (nextStep === "READY") {
-      appendChatMessage("assistant", `${buildTripSummary()} I can search the best options right now.`);
-    } else {
-      appendChatMessage(
-        "assistant",
-        answerResult.message ? `${answerResult.message} ${getPromptForStep(nextStep)}` : getPromptForStep(nextStep)
-      );
+    } finally {
+      setChatLoading(false);
     }
   }
 
   function resetChatSetup() {
     setChatMessages(initialChatMessages);
-    setChatStep("TRIP_TYPE");
     setChatInput("");
+    setChatLoading(false);
+    setChatReadyToSearch(false);
+    setChatTripTypeSet(false);
     setChatStatus("");
     setChatError("");
     setPendingAirportSelection(null);
+    setAirportSelectionQueue([]);
+    setTripType("ROUND_TRIP");
+    setOriginAirport("");
+    setDestinationAirport("");
+    setEarliestDepartDate("");
+    setLatestDepartDate("");
+    setLatestReturnDate("");
+    setMinTripDays("");
+    setMaxTripDays("");
+    setMaxTripDaysFlexible(false);
+    setMaxPrice("");
+    setPhone("");
     setResults([]);
     setHasSearched(false);
   }
@@ -814,7 +775,7 @@ export default function Home() {
                 <h3 className="font-semibold">Trip assistant</h3>
               </div>
 
-              <div className="grid max-h-80 gap-3 overflow-y-auto pr-1">
+              <div className="grid max-h-80 gap-3 overflow-y-auto pr-1" ref={chatMessagesRef}>
                 {chatMessages.map((message) => (
                   <div
                     className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
@@ -837,7 +798,7 @@ export default function Home() {
                 <div className="grid gap-3 rounded-lg border border-blue-100 bg-white p-3">
                   <div>
                     <p className="font-semibold">
-                      {pendingAirportSelection.targetStep === "ORIGINS"
+                      {pendingAirportSelection.target === "ORIGINS"
                         ? "Departure airports"
                         : "Destination airports"}
                     </p>
@@ -878,23 +839,26 @@ export default function Home() {
                     Use selected airports
                   </button>
                 </div>
-              ) : chatStep !== "READY" ? (
+              ) : (
                 <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleChatSubmit}>
                   <input
                     className="min-h-11 flex-1 rounded-md border border-slate-300 px-3 py-2"
                     onChange={(event) => setChatInput(event.target.value)}
-                    placeholder={getPromptForStep(chatStep)}
+                    placeholder="Tell me your trip details or answer the assistant..."
                     value={chatInput}
                   />
                   <button
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-fare px-4 font-semibold text-white"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-fare px-4 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+                    disabled={chatLoading}
                     type="submit"
                   >
                     <MessageCircle size={18} aria-hidden="true" />
-                    Send
+                    {chatLoading ? "Thinking..." : "Send"}
                   </button>
                 </form>
-              ) : (
+              )}
+
+              {chatReadyToSearch && !pendingAirportSelection ? (
                 <div className="grid gap-3 sm:grid-cols-2">
                   <button
                     className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-fare px-4 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
@@ -915,7 +879,7 @@ export default function Home() {
                     {saving ? "Saving..." : "Turn alerts on"}
                   </button>
                 </div>
-              )}
+              ) : null}
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-slate-700">
@@ -1051,7 +1015,7 @@ export default function Home() {
                       className="rounded-md border border-slate-300 px-3 py-2"
                       min="1"
                       onChange={(event) => setMaxTripDays(event.target.value)}
-                      placeholder="Optional"
+                      placeholder="Optional if flexible"
                       type="number"
                       value={maxTripDays}
                     />
