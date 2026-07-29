@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { Bell, MessageCircle, Plane, Search, Sparkles } from "lucide-react";
+import { BackButton } from "../components/BackButton";
 
 type TripType = "ROUND_TRIP" | "ONE_WAY";
 
@@ -837,16 +838,19 @@ export default function Home() {
         <div className="absolute inset-x-0 bottom-0 h-52 bg-[linear-gradient(180deg,rgba(5,9,20,0)_0%,#050914_82%)]" />
 
         <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-5 py-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <Link className="flex h-11 w-11 items-center justify-center rounded-lg bg-white text-fare" href="/">
-                <Plane size={22} aria-hidden="true" />
-              </Link>
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-wide text-cyan-100">
-                  Flight deal watcher
-                </p>
-                <h1 className="text-3xl font-bold tracking-normal">FarePing</h1>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="grid gap-3">
+              <BackButton fallbackHref="/" />
+              <div className="flex items-center gap-3">
+                <Link className="flex h-11 w-11 items-center justify-center rounded-lg bg-white text-fare" href="/">
+                  <Plane size={22} aria-hidden="true" />
+                </Link>
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-wide text-cyan-100">
+                    Flight deal watcher
+                  </p>
+                  <h1 className="text-3xl font-bold tracking-normal">FarePing</h1>
+                </div>
               </div>
             </div>
             <nav className="flex flex-wrap items-center gap-2 rounded-full border border-white/10 bg-white/8 p-1 text-sm font-semibold backdrop-blur-md">

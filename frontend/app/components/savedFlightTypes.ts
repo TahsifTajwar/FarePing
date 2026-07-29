@@ -88,10 +88,11 @@ export function formatStops(stops: number | null) {
 }
 
 export function formatShortDate(date: string) {
-  const parsedDate = new Date(date);
+  const dateOnly = date.slice(0, 10);
+  const parsedDate = new Date(`${dateOnly}T00:00:00`);
 
   if (Number.isNaN(parsedDate.getTime())) {
-    return date;
+    return dateOnly;
   }
 
   return new Intl.DateTimeFormat("en-US", {

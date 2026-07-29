@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Pencil, Save, X } from "lucide-react";
 import {
+  type TripType,
   type SavedResultBatch,
   type SavedSearch
 } from "./savedFlightTypes";
@@ -17,10 +18,28 @@ type AirportMatch = {
   type: string;
 };
 
+type EditSearchForm = {
+  contactPhone: string;
+  tripType: TripType;
+  originAirports: string;
+  destinationAirports: string;
+  earliestDepartDate: string;
+  latestDepartDate: string;
+  latestReturnDate: string;
+  minTripDays: string;
+  maxTripDays: string;
+  maxPrice: string;
+  maxStops: string;
+};
+
 export function TrackedTripsPanel() {
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const [updatingSearchId, setUpdatingSearchId] = useState("");
   const [deletingSearchId, setDeletingSearchId] = useState("");
+  const [editingSearchId, setEditingSearchId] = useState("");
+  const [savingEditId, setSavingEditId] = useState("");
+  const [editForm, setEditForm] = useState<EditSearchForm | null>(null);
+  const [editMessage, setEditMessage] = useState("");
   const [error, setError] = useState("");
   const [airportDetailsByCode, setAirportDetailsByCode] = useState<Record<string, AirportMatch>>(
     {}
@@ -125,10 +144,11 @@ export function TrackedTripsPanel() {
       return "Flexible";
     }
 
-    const parsedDate = new Date(date);
+    const dateOnly = date.slice(0, 10);
+    const parsedDate = new Date(`${dateOnly}T00:00:00`);
 
     if (Number.isNaN(parsedDate.getTime())) {
-      return date.slice(0, 10);
+      return dateOnly;
     }
 
     return new Intl.DateTimeFormat("en-US", {
@@ -200,6 +220,204 @@ export function TrackedTripsPanel() {
 
   function formatPhoneStatus(contactPhone: string | null) {
     return contactPhone ? "Text alerts on" : "Texts not set";
+  }
+
+  async function readJsonResponse<T>(response: Response, fallbackMessage: string) {
+    const responseText = await response.text();
+    let data: unknown = {};
+
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      throw new Error(fallbackMessage);
+    }
+
+    if (!response.ok) {
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "issues" in data &&
+        Array.isArray(data.issues) &&
+        data.issues.length > 0
+      ) {
+        const firstIssue = data.issues[0] as { message?: string };
+        throw new Error(firstIssue.message ?? fallbackMessage);
+      }
+
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "message" in data &&
+        typeof data.message === "string"
+      ) {
+        throw new Error(data.message);
+      }
+
+      throw new Error(fallbackMessage);
+    }
+
+    return data as T;
+  }
+
+  function parseAirportCodes(input: string) {
+    return [...new Set(input.toUpperCase().match(/\b[A-Z]{3}\b/g) ?? [])];
+  }
+
+  function formatInputDate(date: string | null) {
+    return date ? date.slice(0, 10) : "";
+  }
+
+  function buildEditForm(savedSearch: SavedSearch): EditSearchForm {
+    return {
+      contactPhone: savedSearch.contactPhone ?? "",
+      tripType: savedSearch.tripType,
+      originAirports: savedSearch.originAirports.join(", "),
+      destinationAirports: savedSearch.destinationAirports.join(", "),
+      earliestDepartDate: formatInputDate(savedSearch.earliestDepartDate),
+      latestDepartDate: formatInputDate(savedSearch.latestDepartDate),
+      latestReturnDate: formatInputDate(savedSearch.latestReturnDate),
+      minTripDays: savedSearch.minTripDays ? String(savedSearch.minTripDays) : "",
+      maxTripDays: savedSearch.maxTripDays ? String(savedSearch.maxTripDays) : "",
+      maxPrice: String(savedSearch.maxPrice),
+      maxStops: savedSearch.maxStops !== null ? String(savedSearch.maxStops) : ""
+    };
+  }
+
+  function startEditingSavedSearch(savedSearch: SavedSearch) {
+    setEditingSearchId(savedSearch.id);
+    setEditForm(buildEditForm(savedSearch));
+    setEditMessage("");
+    setError("");
+  }
+
+  function cancelEditingSavedSearch() {
+    setEditingSearchId("");
+    setEditForm(null);
+    setEditMessage("");
+  }
+
+  function updateEditForm<Field extends keyof EditSearchForm>(
+    field: Field,
+    value: EditSearchForm[Field]
+  ) {
+    setEditForm((currentForm) => (currentForm ? { ...currentForm, [field]: value } : currentForm));
+  }
+
+  function buildEditRequestBody() {
+    if (!editForm) {
+      return null;
+    }
+
+    return {
+      contactPhone: editForm.contactPhone.trim() || null,
+      tripType: editForm.tripType,
+      originAirports: parseAirportCodes(editForm.originAirports),
+      destinationAirports: parseAirportCodes(editForm.destinationAirports),
+      earliestDepartDate: editForm.earliestDepartDate,
+      latestDepartDate: editForm.tripType === "ONE_WAY" ? editForm.latestDepartDate || null : null,
+      latestReturnDate: editForm.tripType === "ROUND_TRIP" ? editForm.latestReturnDate : null,
+      minTripDays: editForm.tripType === "ROUND_TRIP" ? Number(editForm.minTripDays) : null,
+      maxTripDays:
+        editForm.tripType === "ROUND_TRIP" && editForm.maxTripDays
+          ? Number(editForm.maxTripDays)
+          : null,
+      maxPrice: Number(editForm.maxPrice),
+      maxStops: editForm.maxStops ? Number(editForm.maxStops) : null
+    };
+  }
+
+  function validateEditForm() {
+    if (!editForm) {
+      return "Open an alert before editing.";
+    }
+
+    if (parseAirportCodes(editForm.originAirports).length === 0) {
+      return "Add at least one origin airport code.";
+    }
+
+    if (parseAirportCodes(editForm.destinationAirports).length === 0) {
+      return "Add at least one destination airport code.";
+    }
+
+    if (!editForm.earliestDepartDate) {
+      return "Choose an earliest departure date.";
+    }
+
+    if (editForm.tripType === "ROUND_TRIP") {
+      if (!editForm.latestReturnDate) {
+        return "Choose a latest return date for this round trip.";
+      }
+
+      if (!Number(editForm.minTripDays)) {
+        return "Add minimum stay days for this round trip.";
+      }
+    }
+
+    if (!Number(editForm.maxPrice)) {
+      return "Add a max budget.";
+    }
+
+    return "";
+  }
+
+  async function handleUpdateSavedSearchDetails(savedSearchId: string) {
+    const validationError = validateEditForm();
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setSavingEditId(savedSearchId);
+    setEditMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `http://localhost:4000/api/saved-searches/${savedSearchId}/details`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(buildEditRequestBody())
+        }
+      );
+      const data = await readJsonResponse<{ savedSearch: SavedSearch }>(
+        response,
+        "Could not update this flight alert."
+      );
+
+      setSavedSearches((currentSavedSearches) =>
+        currentSavedSearches.map((currentSavedSearch) =>
+          currentSavedSearch.id === savedSearchId ? data.savedSearch : currentSavedSearch
+        )
+      );
+      setResultBatchesBySearchId((currentResultBatches) => {
+        const nextResultBatches = { ...currentResultBatches };
+        const latestBatch = data.savedSearch.resultBatches?.[0];
+
+        if (latestBatch) {
+          nextResultBatches[savedSearchId] = latestBatch;
+        } else {
+          delete nextResultBatches[savedSearchId];
+        }
+
+        return nextResultBatches;
+      });
+      void fetchAirportDetails([data.savedSearch]);
+      setEditingSearchId("");
+      setEditForm(null);
+      setEditMessage("Alert updated. Open the trip and check again for fresh ranked options.");
+    } catch (savedSearchError) {
+      setError(
+        savedSearchError instanceof Error
+          ? savedSearchError.message
+          : "Something went wrong while updating this flight alert."
+      );
+    } finally {
+      setSavingEditId("");
+    }
   }
 
   async function handleToggleSavedSearch(savedSearch: SavedSearch) {
@@ -284,6 +502,12 @@ export function TrackedTripsPanel() {
       {error ? (
         <p className="rounded-md bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
           {error}
+        </p>
+      ) : null}
+
+      {editMessage ? (
+        <p className="rounded-md bg-emerald-100 px-4 py-3 text-sm font-medium text-emerald-900">
+          {editMessage}
         </p>
       ) : null}
 
@@ -373,10 +597,26 @@ export function TrackedTripsPanel() {
                     </div>
                   </div>
 
-                  <div className="grid gap-2 border-t border-white/10 pt-4 sm:grid-cols-[1fr_1fr_1fr] sm:items-center">
+                  <div className="grid gap-2 border-t border-white/10 pt-4 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center">
                     <p className="text-sm font-semibold text-slate-300 sm:col-span-1">
                       {formatPhoneStatus(savedSearch.contactPhone)}
                     </p>
+                    <button
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-cyan-100/25 px-4 text-sm font-bold text-cyan-100 transition hover:bg-cyan-100 hover:text-[#07111f]"
+                      onClick={() =>
+                        editingSearchId === savedSearch.id
+                          ? cancelEditingSavedSearch()
+                          : startEditingSavedSearch(savedSearch)
+                      }
+                      type="button"
+                    >
+                      {editingSearchId === savedSearch.id ? (
+                        <X size={16} aria-hidden="true" />
+                      ) : (
+                        <Pencil size={16} aria-hidden="true" />
+                      )}
+                      {editingSearchId === savedSearch.id ? "Close edit" : "Edit"}
+                    </button>
                     <button
                       className="inline-flex h-11 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-bold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
                       disabled={updatingSearchId === savedSearch.id}
@@ -398,6 +638,185 @@ export function TrackedTripsPanel() {
                       {deletingSearchId === savedSearch.id ? "Deleting..." : "Delete"}
                     </button>
                   </div>
+
+                  {editingSearchId === savedSearch.id && editForm ? (
+                    <form
+                      className="grid gap-4 border-t border-white/10 pt-4"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleUpdateSavedSearchDetails(savedSearch.id);
+                      }}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-cyan-100">Edit alert details</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-400">
+                            Changes update what FarePing watches. Run a fresh check from the trip page afterward.
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 rounded-md border border-white/12 bg-white/[0.06] p-1 text-sm font-semibold">
+                          <button
+                            className={`h-9 rounded px-3 ${
+                              editForm.tripType === "ROUND_TRIP"
+                                ? "bg-cyan-100 text-[#07111f]"
+                                : "text-slate-300"
+                            }`}
+                            onClick={() => updateEditForm("tripType", "ROUND_TRIP")}
+                            type="button"
+                          >
+                            Round trip
+                          </button>
+                          <button
+                            className={`h-9 rounded px-3 ${
+                              editForm.tripType === "ONE_WAY"
+                                ? "bg-cyan-100 text-[#07111f]"
+                                : "text-slate-300"
+                            }`}
+                            onClick={() => updateEditForm("tripType", "ONE_WAY")}
+                            type="button"
+                          >
+                            One way
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="grid gap-2 text-sm font-semibold">
+                          From airports
+                          <input
+                            className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white uppercase outline-none placeholder:text-slate-500 focus:border-cyan-200"
+                            onChange={(event) =>
+                              updateEditForm("originAirports", event.target.value.toUpperCase())
+                            }
+                            placeholder="BOS, BDL"
+                            value={editForm.originAirports}
+                          />
+                        </label>
+                        <label className="grid gap-2 text-sm font-semibold">
+                          To airports
+                          <input
+                            className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white uppercase outline-none placeholder:text-slate-500 focus:border-cyan-200"
+                            onChange={(event) =>
+                              updateEditForm("destinationAirports", event.target.value.toUpperCase())
+                            }
+                            placeholder="LAS, SLC"
+                            value={editForm.destinationAirports}
+                          />
+                        </label>
+                        <label className="grid gap-2 text-sm font-semibold">
+                          Earliest departure
+                          <input
+                            className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none focus:border-cyan-200"
+                            onChange={(event) =>
+                              updateEditForm("earliestDepartDate", event.target.value)
+                            }
+                            type="date"
+                            value={editForm.earliestDepartDate}
+                          />
+                        </label>
+                        {editForm.tripType === "ONE_WAY" ? (
+                          <label className="grid gap-2 text-sm font-semibold">
+                            Latest departure
+                            <input
+                              className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none focus:border-cyan-200"
+                              onChange={(event) =>
+                                updateEditForm("latestDepartDate", event.target.value)
+                              }
+                              type="date"
+                              value={editForm.latestDepartDate}
+                            />
+                          </label>
+                        ) : null}
+
+                        {editForm.tripType === "ROUND_TRIP" ? (
+                          <>
+                            <label className="grid gap-2 text-sm font-semibold">
+                              Latest return
+                              <input
+                                className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none focus:border-cyan-200"
+                                onChange={(event) =>
+                                  updateEditForm("latestReturnDate", event.target.value)
+                                }
+                                type="date"
+                                value={editForm.latestReturnDate}
+                              />
+                            </label>
+                            <label className="grid gap-2 text-sm font-semibold">
+                              Minimum stay days
+                              <input
+                                className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
+                                min="1"
+                                onChange={(event) => updateEditForm("minTripDays", event.target.value)}
+                                type="number"
+                                value={editForm.minTripDays}
+                              />
+                            </label>
+                            <label className="grid gap-2 text-sm font-semibold">
+                              Maximum stay days
+                              <input
+                                className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
+                                min="1"
+                                onChange={(event) => updateEditForm("maxTripDays", event.target.value)}
+                                placeholder="Optional"
+                                type="number"
+                                value={editForm.maxTripDays}
+                              />
+                            </label>
+                          </>
+                        ) : null}
+
+                        <label className="grid gap-2 text-sm font-semibold">
+                          Max budget
+                          <input
+                            className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
+                            min="1"
+                            onChange={(event) => updateEditForm("maxPrice", event.target.value)}
+                            placeholder="700"
+                            type="number"
+                            value={editForm.maxPrice}
+                          />
+                        </label>
+                        <label className="grid gap-2 text-sm font-semibold">
+                          Text number
+                          <input
+                            className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
+                            onChange={(event) => updateEditForm("contactPhone", event.target.value)}
+                            placeholder="+12145551234"
+                            value={editForm.contactPhone}
+                          />
+                        </label>
+                        <label className="grid gap-2 text-sm font-semibold">
+                          Max stops
+                          <input
+                            className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
+                            min="0"
+                            onChange={(event) => updateEditForm("maxStops", event.target.value)}
+                            placeholder="Optional"
+                            type="number"
+                            value={editForm.maxStops}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <button
+                          className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-cyan-100 px-4 text-sm font-bold text-[#07111f] transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white"
+                          disabled={savingEditId === savedSearch.id}
+                          type="submit"
+                        >
+                          <Save size={16} aria-hidden="true" />
+                          {savingEditId === savedSearch.id ? "Saving..." : "Save changes"}
+                        </button>
+                        <button
+                          className="inline-flex h-11 items-center justify-center rounded-md border border-white/15 px-4 text-sm font-bold text-slate-200 transition hover:bg-white/10"
+                          onClick={cancelEditingSavedSearch}
+                          type="button"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : null}
                 </div>
               </article>
             );

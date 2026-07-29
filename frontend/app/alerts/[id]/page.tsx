@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Plane, RefreshCw } from "lucide-react";
+import { Plane, RefreshCw } from "lucide-react";
+import { BackButton } from "../../components/BackButton";
 import {
   formatDuration,
   formatStops,
@@ -183,10 +184,11 @@ export default function AlertDetailPage() {
       return "Flexible";
     }
 
-    const parsedDate = new Date(date);
+    const dateOnly = date.slice(0, 10);
+    const parsedDate = new Date(`${dateOnly}T00:00:00`);
 
     if (Number.isNaN(parsedDate.getTime())) {
-      return date.slice(0, 10);
+      return dateOnly;
     }
 
     return new Intl.DateTimeFormat("en-US", {
@@ -305,13 +307,16 @@ export default function AlertDetailPage() {
         <div className="absolute inset-0 bg-[linear-gradient(90deg,#050914_0%,rgba(5,9,20,0.92)_48%,rgba(5,9,20,0.74)_100%)]" />
 
         <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-6">
-          <nav className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <Link className="flex items-center gap-3" href="/">
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-[#2563eb]">
-                <Plane size={22} aria-hidden="true" />
-              </span>
-              <span className="text-xl font-bold">FarePing</span>
-            </Link>
+          <nav className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="grid gap-3">
+              <BackButton fallbackHref="/alerts" />
+              <Link className="flex items-center gap-3" href="/">
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-[#2563eb]">
+                  <Plane size={22} aria-hidden="true" />
+                </span>
+                <span className="text-xl font-bold">FarePing</span>
+              </Link>
+            </div>
 
             <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
               <Link className="rounded-full border border-white/15 px-4 py-2 text-slate-200" href="/search">
@@ -326,14 +331,7 @@ export default function AlertDetailPage() {
           <header className="rounded-lg border border-white/15 bg-[#07111f]/88 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.36)] backdrop-blur-xl">
             <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-start">
               <div>
-                <Link
-                  className="inline-flex w-fit items-center gap-2 text-sm font-semibold text-cyan-100"
-                  href="/alerts"
-                >
-                  <ArrowLeft size={16} aria-hidden="true" />
-                  Back to alerts
-                </Link>
-                <p className="mt-5 text-sm font-semibold text-cyan-100">Tracked trip</p>
+                <p className="text-sm font-semibold text-cyan-100">Tracked trip</p>
                 <h1 className="mt-2 text-4xl font-bold tracking-normal sm:text-5xl">
                   {routeSummary}
                 </h1>
