@@ -279,7 +279,8 @@ savedSearchesRouter.get("/:id", async (req, res) => {
         },
         orderBy: {
           checkedAt: "desc"
-        }
+        },
+        take: 1
       }
     }
   });

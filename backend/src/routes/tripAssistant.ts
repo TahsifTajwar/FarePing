@@ -30,21 +30,25 @@ const tripAssistantRequestSchema = z.object({
 });
 
 tripAssistantRouter.post("/message", async (req, res) => {
-  if (!openAiConfigured) {
-    res.status(503).json({
-      error: "OpenAI is not configured. Add OPENAI_API_KEY to backend/.env."
-    });
-    return;
-  }
-
-  const input = tripAssistantRequestSchema.parse(req.body);
-
   try {
+    if (!openAiConfigured) {
+      res.status(503).json({
+        error: "OpenAI is not configured. Add OPENAI_API_KEY to backend/.env."
+      });
+      return;
+    }
+
+    const input = tripAssistantRequestSchema.parse(req.body);
     const result = await getTripAssistantReply(input);
     res.json(result);
   } catch (error) {
-    res.status(502).json({
-      error: error instanceof Error ? error.message : "Trip assistant request failed."
+    res.status(error instanceof z.ZodError ? 400 : 502).json({
+      error:
+        error instanceof z.ZodError
+          ? "The trip assistant received too much or invalid chat data. Please try again."
+          : error instanceof Error
+            ? error.message
+            : "Trip assistant request failed."
     });
   }
 });

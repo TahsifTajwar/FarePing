@@ -20,6 +20,7 @@ export type ItineraryLeg = {
   destinationAirport: string;
   price: number;
   departDate: string;
+  durationMinutes?: number;
   stops: number;
   bookingLink: string;
 };

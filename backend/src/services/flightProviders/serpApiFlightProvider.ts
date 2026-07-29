@@ -360,6 +360,7 @@ function mapSegmentsToLeg(
     destinationAirport: lastSegment?.arrival_airport?.id ?? "",
     price,
     departDate: getDate(firstSegment?.departure_airport?.time),
+    durationMinutes: getLegDurationMinutes(segments),
     stops: Math.max(segments.length - 1, 0),
     bookingLink: googleFlightsUrl ?? "https://www.google.com/travel/flights"
   };
@@ -529,6 +530,24 @@ function sampleDatePairs(datePairs: DatePair[], maxDatePairs: number) {
 
 function sumSegmentDurations(segments: SerpApiFlightSegment[]) {
   return segments.reduce((total, segment) => total + (segment.duration ?? 0), 0);
+}
+
+function getLegDurationMinutes(segments: SerpApiFlightSegment[]) {
+  const firstSegment = segments[0];
+  const lastSegment = segments[segments.length - 1];
+  const departureTime = firstSegment?.departure_airport?.time;
+  const arrivalTime = lastSegment?.arrival_airport?.time;
+
+  if (departureTime && arrivalTime) {
+    const departure = new Date(departureTime);
+    const arrival = new Date(arrivalTime);
+
+    if (!Number.isNaN(departure.getTime()) && !Number.isNaN(arrival.getTime())) {
+      return Math.max(0, Math.round((arrival.getTime() - departure.getTime()) / (60 * 1000)));
+    }
+  }
+
+  return sumSegmentDurations(segments);
 }
 
 function getDate(dateTime?: string) {

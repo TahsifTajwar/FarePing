@@ -47,6 +47,7 @@ function buildOneWayResults(
           destinationAirport,
           164,
           search.earliestDepartDate,
+          190,
           0
         )
       ]
@@ -68,6 +69,7 @@ function buildOneWayResults(
           destinationAirport,
           188,
           search.latestDepartDate ?? search.earliestDepartDate,
+          300,
           maxStops
         )
       ]
@@ -82,7 +84,7 @@ function buildOneWayResults(
       totalDurationMinutes: 720,
       carryOnIncluded: false,
       legs: [
-        buildLeg("OUTBOUND", "United", originAirport, destinationAirport, 213, search.earliestDepartDate, maxStops)
+        buildLeg("OUTBOUND", "United", originAirport, destinationAirport, 213, search.earliestDepartDate, 720, maxStops)
       ]
     }
   ];
@@ -111,8 +113,8 @@ function buildRoundTripResults(
     totalDurationMinutes: 760,
     carryOnIncluded: true,
     legs: [
-      buildLeg("OUTBOUND", "Delta", originAirport, destinationAirport, 340, search.earliestDepartDate, maxStops),
-      buildLeg("RETURN", "Delta", destinationAirport, originAirport, 340, returnDate, maxStops)
+      buildLeg("OUTBOUND", "Delta", originAirport, destinationAirport, 340, search.earliestDepartDate, 380, maxStops),
+      buildLeg("RETURN", "Delta", destinationAirport, originAirport, 340, returnDate, 380, maxStops)
     ]
   };
 
@@ -126,8 +128,8 @@ function buildRoundTripResults(
     totalDurationMinutes: 660,
     carryOnIncluded: true,
     legs: [
-      buildLeg("OUTBOUND", "United", originAirport, destinationAirport, 320, search.earliestDepartDate, 0),
-      buildLeg("RETURN", "United", destinationAirport, originAirport, 320, returnDate, 0)
+      buildLeg("OUTBOUND", "United", originAirport, destinationAirport, 320, search.earliestDepartDate, 330, 0),
+      buildLeg("RETURN", "United", destinationAirport, originAirport, 320, returnDate, 330, 0)
     ]
   };
 
@@ -148,9 +150,10 @@ function buildRoundTripResults(
         destinationAirport,
         splitOutboundPrice,
         search.earliestDepartDate,
+        420,
         0
       ),
-      buildLeg("RETURN", "Norse", destinationAirport, originAirport, splitReturnPrice, returnDate, maxStops)
+      buildLeg("RETURN", "Norse", destinationAirport, originAirport, splitReturnPrice, returnDate, 480, maxStops)
     ]
   };
 
@@ -164,6 +167,7 @@ function buildLeg(
   destinationAirport: string,
   price: number,
   departDate: string,
+  durationMinutes: number,
   stops: number
 ) {
   return {
@@ -173,6 +177,7 @@ function buildLeg(
     destinationAirport,
     price,
     departDate,
+    durationMinutes,
     stops,
     bookingLink: `https://example.com/book/${airline.toLowerCase()}`
   };

@@ -125,6 +125,7 @@ function buildItineraryCreateInput(itinerary: Itinerary) {
         destinationAirport: leg.destinationAirport,
         price: leg.price,
         departDate: toDate(leg.departDate),
+        durationMinutes: leg.durationMinutes,
         stops: leg.stops,
         bookingLink: leg.bookingLink
       }))

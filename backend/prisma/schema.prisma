@@ -97,6 +97,7 @@ model ItineraryLeg {
   destinationAirport String
   price              Int
   departDate         DateTime
+  durationMinutes    Int?
   stops              Int
   bookingLink        String?
   itineraryResult    ItineraryResult @relation(fields: [itineraryResultId], references: [id])

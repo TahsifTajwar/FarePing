@@ -235,6 +235,7 @@ function mapItineraryToLeg(
     destinationAirport: lastSegment?.arrival.iataCode ?? "",
     price,
     departDate: firstSegment?.departure.at.slice(0, 10) ?? "",
+    durationMinutes: parseDurationMinutes(itinerary.duration),
     stops: countStops(itinerary.segments),
     bookingLink: "https://www.google.com/travel/flights"
   };
