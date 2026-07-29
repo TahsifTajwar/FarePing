@@ -166,6 +166,8 @@ export default function Home() {
   const [saveMessage, setSaveMessage] = useState("");
   const [saveError, setSaveError] = useState("");
   const [checkingSearchId, setCheckingSearchId] = useState("");
+  const [updatingSearchId, setUpdatingSearchId] = useState("");
+  const [deletingSearchId, setDeletingSearchId] = useState("");
   const [checkError, setCheckError] = useState("");
   const [resultBatchesBySearchId, setResultBatchesBySearchId] = useState<
     Record<string, SavedResultBatch>
@@ -745,6 +747,83 @@ export default function Home() {
     }
   }
 
+  async function handleToggleSavedSearch(savedSearch: SavedSearch) {
+    setUpdatingSearchId(savedSearch.id);
+    setCheckError("");
+
+    try {
+      const response = await fetch(`http://localhost:4000/api/saved-searches/${savedSearch.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          active: !savedSearch.active
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Could not update this flight alert.");
+      }
+
+      const data = (await response.json()) as { savedSearch: SavedSearch };
+
+      setSavedSearches((currentSavedSearches) =>
+        currentSavedSearches.map((currentSavedSearch) =>
+          currentSavedSearch.id === savedSearch.id ? data.savedSearch : currentSavedSearch
+        )
+      );
+    } catch (savedSearchError) {
+      setCheckError(
+        savedSearchError instanceof Error
+          ? savedSearchError.message
+          : "Something went wrong while updating this flight alert."
+      );
+    } finally {
+      setUpdatingSearchId("");
+    }
+  }
+
+  async function handleDeleteSavedSearch(savedSearch: SavedSearch) {
+    const shouldDelete = window.confirm(
+      `Delete the alert for ${savedSearch.originAirports.join(", ")} to ${savedSearch.destinationAirports.join(", ")}?`
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setDeletingSearchId(savedSearch.id);
+    setCheckError("");
+
+    try {
+      const response = await fetch(`http://localhost:4000/api/saved-searches/${savedSearch.id}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        throw new Error("Could not delete this flight alert.");
+      }
+
+      setSavedSearches((currentSavedSearches) =>
+        currentSavedSearches.filter((currentSavedSearch) => currentSavedSearch.id !== savedSearch.id)
+      );
+      setResultBatchesBySearchId((currentResultBatches) => {
+        const nextResultBatches = { ...currentResultBatches };
+        delete nextResultBatches[savedSearch.id];
+        return nextResultBatches;
+      });
+    } catch (savedSearchError) {
+      setCheckError(
+        savedSearchError instanceof Error
+          ? savedSearchError.message
+          : "Something went wrong while deleting this flight alert."
+      );
+    } finally {
+      setDeletingSearchId("");
+    }
+  }
+
   const noResultsFound = hasSearched && !loading && !error && results.length === 0;
 
   return (
@@ -1206,10 +1285,17 @@ export default function Home() {
                           <p className="text-sm font-semibold text-fare">
                             {savedSearch.tripType === "ROUND_TRIP" ? "Round trip" : "One way"}
                           </p>
-                          <h3 className="font-semibold">
-                            {savedSearch.originAirports.join(", ")} to{" "}
-                            {savedSearch.destinationAirports.join(", ")}
-                          </h3>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-semibold">
+                              {savedSearch.originAirports.join(", ")} to{" "}
+                              {savedSearch.destinationAirports.join(", ")}
+                            </h3>
+                            {!savedSearch.active ? (
+                              <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800">
+                                Paused
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                         <p className="font-bold text-signal">USD {savedSearch.maxPrice}</p>
                       </div>
@@ -1230,15 +1316,37 @@ export default function Home() {
                         {savedSearch.contactPhone ? <p>Text alerts: {savedSearch.contactPhone}</p> : null}
                       </div>
 
-                      <button
-                        className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-fare px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
-                        disabled={checkingSearchId === savedSearch.id}
-                        onClick={() => handleCheckSavedSearch(savedSearch.id)}
-                        type="button"
-                      >
-                        <RefreshCw size={16} aria-hidden="true" />
-                        {checkingSearchId === savedSearch.id ? "Checking..." : "Check now"}
-                      </button>
+                      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                        <button
+                          className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-fare px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+                          disabled={checkingSearchId === savedSearch.id || !savedSearch.active}
+                          onClick={() => handleCheckSavedSearch(savedSearch.id)}
+                          type="button"
+                        >
+                          <RefreshCw size={16} aria-hidden="true" />
+                          {checkingSearchId === savedSearch.id ? "Checking..." : "Check now"}
+                        </button>
+                        <button
+                          className="inline-flex h-10 items-center justify-center rounded-md border border-fare px-3 text-sm font-semibold text-fare disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                          disabled={updatingSearchId === savedSearch.id}
+                          onClick={() => handleToggleSavedSearch(savedSearch)}
+                          type="button"
+                        >
+                          {updatingSearchId === savedSearch.id
+                            ? "Updating..."
+                            : savedSearch.active
+                              ? "Pause"
+                              : "Resume"}
+                        </button>
+                        <button
+                          className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 px-3 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                          disabled={deletingSearchId === savedSearch.id}
+                          onClick={() => handleDeleteSavedSearch(savedSearch)}
+                          type="button"
+                        >
+                          {deletingSearchId === savedSearch.id ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
 
                       {latestBatch ? (
                         <div className="mt-4 rounded-md border border-slate-200 bg-white p-3">

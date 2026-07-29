@@ -44,6 +44,10 @@ const savedSearchSchema = z
     }
   });
 
+const updateSavedSearchSchema = z.object({
+  active: z.boolean()
+});
+
 savedSearchesRouter.post("/", async (req, res) => {
   const input = savedSearchSchema.parse(req.body);
 
@@ -124,6 +128,136 @@ savedSearchesRouter.post("/:id/check", async (req, res) => {
     resultBatch,
     notificationDecision
   });
+});
+
+savedSearchesRouter.patch("/:id", async (req, res) => {
+  const input = updateSavedSearchSchema.parse(req.body);
+
+  const savedSearch = await prisma.savedSearch.findUnique({
+    where: {
+      id: req.params.id
+    }
+  });
+
+  if (!savedSearch) {
+    res.status(404).json({
+      message: "Saved search not found."
+    });
+    return;
+  }
+
+  const updatedSavedSearch = await prisma.savedSearch.update({
+    where: {
+      id: req.params.id
+    },
+    data: {
+      active: input.active
+    },
+    include: {
+      resultBatches: {
+        include: {
+          itineraries: {
+            include: {
+              legs: true
+            },
+            orderBy: {
+              dealScore: "desc"
+            }
+          }
+        },
+        orderBy: {
+          checkedAt: "desc"
+        },
+        take: 1
+      }
+    }
+  });
+
+  res.json({
+    savedSearch: updatedSavedSearch
+  });
+});
+
+savedSearchesRouter.delete("/:id", async (req, res) => {
+  const savedSearchId = req.params.id;
+  const savedSearch = await prisma.savedSearch.findUnique({
+    where: {
+      id: savedSearchId
+    }
+  });
+
+  if (!savedSearch) {
+    res.status(404).json({
+      message: "Saved search not found."
+    });
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const resultBatches = await tx.searchResultBatch.findMany({
+      where: {
+        savedSearchId
+      },
+      select: {
+        id: true
+      }
+    });
+    const resultBatchIds = resultBatches.map((resultBatch) => resultBatch.id);
+
+    const itineraries = await tx.itineraryResult.findMany({
+      where: {
+        resultBatchId: {
+          in: resultBatchIds
+        }
+      },
+      select: {
+        id: true
+      }
+    });
+    const itineraryIds = itineraries.map((itinerary) => itinerary.id);
+
+    await tx.notification.deleteMany({
+      where: {
+        savedSearchId
+      }
+    });
+
+    await tx.priceHistory.deleteMany({
+      where: {
+        savedSearchId
+      }
+    });
+
+    await tx.itineraryLeg.deleteMany({
+      where: {
+        itineraryResultId: {
+          in: itineraryIds
+        }
+      }
+    });
+
+    await tx.itineraryResult.deleteMany({
+      where: {
+        resultBatchId: {
+          in: resultBatchIds
+        }
+      }
+    });
+
+    await tx.searchResultBatch.deleteMany({
+      where: {
+        savedSearchId
+      }
+    });
+
+    await tx.savedSearch.delete({
+      where: {
+        id: savedSearchId
+      }
+    });
+  });
+
+  res.status(204).send();
 });
 
 savedSearchesRouter.get("/:id", async (req, res) => {
