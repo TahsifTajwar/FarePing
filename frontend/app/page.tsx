@@ -1,9 +1,47 @@
 "use client";
 
 import { type FormEvent, type MouseEvent, useEffect, useState } from "react";
-import { Bell, Plane, RefreshCw, Search } from "lucide-react";
+import { Bell, MessageCircle, Plane, RefreshCw, Search, Sparkles } from "lucide-react";
 
 type TripType = "ROUND_TRIP" | "ONE_WAY";
+type ChatStep =
+  | "TRIP_TYPE"
+  | "ORIGINS"
+  | "DESTINATIONS"
+  | "DEPARTURE"
+  | "LATEST_DEPARTURE"
+  | "RETURN"
+  | "MIN_STAY"
+  | "MAX_STAY"
+  | "BUDGET"
+  | "PHONE"
+  | "READY";
+
+type ChatMessage = {
+  id: string;
+  role: "assistant" | "user";
+  text: string;
+};
+
+type AirportMatch = {
+  iataCode: string;
+  name: string;
+  municipality: string;
+  country: string;
+  region: string;
+  type: string;
+};
+
+type ChatAnswerResult = {
+  message: string;
+  pause: boolean;
+};
+
+type PendingAirportSelection = {
+  targetStep: "ORIGINS" | "DESTINATIONS";
+  matches: AirportMatch[];
+  selectedCodes: string[];
+};
 
 type ItineraryLeg = {
   direction: "OUTBOUND" | "RETURN";
@@ -36,6 +74,14 @@ const itineraryLabels = {
   SPLIT_ONE_WAYS: "Split one-ways",
   ONE_WAY: "One way"
 };
+
+const initialChatMessages: ChatMessage[] = [
+  {
+    id: "assistant-start",
+    role: "assistant",
+    text: "Tell me what kind of trip this is. Round trip or one way?"
+  }
+];
 
 type SavedSearch = {
   id: string;
@@ -114,6 +160,13 @@ export default function Home() {
   const [resultBatchesBySearchId, setResultBatchesBySearchId] = useState<
     Record<string, SavedResultBatch>
   >({});
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialChatMessages);
+  const [chatStep, setChatStep] = useState<ChatStep>("TRIP_TYPE");
+  const [chatInput, setChatInput] = useState("");
+  const [chatStatus, setChatStatus] = useState("");
+  const [chatError, setChatError] = useState("");
+  const [pendingAirportSelection, setPendingAirportSelection] =
+    useState<PendingAirportSelection | null>(null);
 
   useEffect(() => {
     void fetchSavedSearches();
@@ -135,8 +188,8 @@ export default function Home() {
   function buildSearchRequestBody(includeContactPhone = false) {
     return {
       tripType,
-      originAirports: [originAirport.trim().toUpperCase()],
-      destinationAirports: [destinationAirport.trim().toUpperCase()],
+      originAirports: parseAirportCodes(originAirport),
+      destinationAirports: parseAirportCodes(destinationAirport),
       earliestDepartDate,
       ...(tripType === "ONE_WAY" && latestDepartDate ? { latestDepartDate } : {}),
       ...(tripType === "ROUND_TRIP"
@@ -150,6 +203,383 @@ export default function Home() {
       maxStops: 1,
       ...(includeContactPhone && phone.trim() ? { contactPhone: phone.trim() } : {})
     };
+  }
+
+  function appendChatMessage(role: ChatMessage["role"], text: string) {
+    setChatMessages((currentMessages) => [
+      ...currentMessages,
+      {
+        id: `${role}-${Date.now()}-${currentMessages.length}`,
+        role,
+        text
+      }
+    ]);
+  }
+
+  function parseAirportCodes(input: string) {
+    return [...new Set(input.toUpperCase().match(/\b[A-Z]{3}\b/g) ?? [])];
+  }
+
+  async function resolveAirportsFromText(input: string) {
+    const response = await fetch(
+      `http://localhost:4000/api/airports/resolve?q=${encodeURIComponent(input)}&limit=6`
+    );
+
+    if (!response.ok) {
+      throw new Error("Could not resolve airports from that answer.");
+    }
+
+    const data = (await response.json()) as { airports: AirportMatch[] };
+    return data.airports;
+  }
+
+  function isSkipAnswer(answer: string) {
+    return ["skip", "none", "no", "nah", "n/a", "na"].includes(answer.trim().toLowerCase());
+  }
+
+  function isValidDateString(date: string) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(date);
+  }
+
+  function getSearchValidationError() {
+    if (parseAirportCodes(originAirport).length === 0) {
+      return "I need at least one origin airport or city.";
+    }
+
+    if (parseAirportCodes(destinationAirport).length === 0) {
+      return "I need at least one destination airport or city.";
+    }
+
+    if (!isValidDateString(earliestDepartDate)) {
+      return "Earliest departure needs to be in YYYY-MM-DD format.";
+    }
+
+    if (tripType === "ROUND_TRIP") {
+      if (!isValidDateString(latestReturnDate)) {
+        return "Latest return needs to be in YYYY-MM-DD format.";
+      }
+
+      if (!Number(minTripDays)) {
+        return "Minimum stay days needs to be a number.";
+      }
+    }
+
+    if (!Number(maxPrice)) {
+      return "Max budget needs to be a number.";
+    }
+
+    return "";
+  }
+
+  function buildTripSummary() {
+    const originAirports = parseAirportCodes(originAirport);
+    const destinationAirports = parseAirportCodes(destinationAirport);
+    const stayText =
+      tripType === "ROUND_TRIP"
+        ? ` Stay ${minTripDays}${maxTripDays ? `-${maxTripDays}` : "+"} days.`
+        : latestDepartDate
+          ? ` Depart by ${latestDepartDate}.`
+          : "";
+
+    return `${tripType === "ROUND_TRIP" ? "Round trip" : "One way"} from ${originAirports.join(", ")} to ${destinationAirports.join(", ")}. Depart from ${earliestDepartDate}.${tripType === "ROUND_TRIP" ? ` Return by ${latestReturnDate}.` : ""}${stayText} Budget USD ${maxPrice}.`;
+  }
+
+  function getNextChatStep(currentStep: ChatStep): ChatStep {
+    if (currentStep === "TRIP_TYPE") {
+      return "ORIGINS";
+    }
+
+    if (currentStep === "ORIGINS") {
+      return "DESTINATIONS";
+    }
+
+    if (currentStep === "DESTINATIONS") {
+      return "DEPARTURE";
+    }
+
+    if (currentStep === "DEPARTURE") {
+      return tripType === "ROUND_TRIP" ? "RETURN" : "LATEST_DEPARTURE";
+    }
+
+    if (currentStep === "LATEST_DEPARTURE") {
+      return "BUDGET";
+    }
+
+    if (currentStep === "RETURN") {
+      return "MIN_STAY";
+    }
+
+    if (currentStep === "MIN_STAY") {
+      return "MAX_STAY";
+    }
+
+    if (currentStep === "MAX_STAY") {
+      return "BUDGET";
+    }
+
+    if (currentStep === "BUDGET") {
+      return "PHONE";
+    }
+
+    return "READY";
+  }
+
+  function getPromptForStep(step: ChatStep) {
+    const prompts: Record<ChatStep, string> = {
+      TRIP_TYPE: "Round trip or one way?",
+      ORIGINS: "Where can you leave from? You can type cities or airport codes, like Boston, Hartford, BOS, BDL.",
+      DESTINATIONS: "Where do you want to go? You can give multiple options, like Utah or Las Vegas.",
+      DEPARTURE: "What is the earliest departure date? Use YYYY-MM-DD for now.",
+      LATEST_DEPARTURE: "Optional: what is the latest departure date? Type skip if you do not care.",
+      RETURN: "What is the latest return date? Use YYYY-MM-DD.",
+      MIN_STAY: "What is the minimum number of stay days?",
+      MAX_STAY: "Optional: what is the maximum number of stay days? Type skip if flexible.",
+      BUDGET: "What is the max budget per person in USD?",
+      PHONE: "Optional: what phone number should get text alerts? Type skip if you only want results right now.",
+      READY: "I have enough to search current best flights. Run the search now, then you can turn alerts on if you like."
+    };
+
+    return prompts[step];
+  }
+
+  async function applyChatAnswer(step: ChatStep, answer: string): Promise<ChatAnswerResult> {
+    const trimmedAnswer = answer.trim();
+
+    if (step === "TRIP_TYPE") {
+      const lowerAnswer = trimmedAnswer.toLowerCase();
+
+      if (lowerAnswer.includes("one")) {
+        handleTripTypeChange("ONE_WAY");
+      } else if (lowerAnswer.includes("round") || lowerAnswer.includes("return")) {
+        handleTripTypeChange("ROUND_TRIP");
+      } else {
+        return { message: "Please answer round trip or one way.", pause: true };
+      }
+    }
+
+    if (step === "ORIGINS") {
+      const airports = await resolveAirportsFromText(trimmedAnswer);
+
+      if (airports.length === 0) {
+        throw new Error("I could not find an airport code from that. Try BOS, BDL, Boston, or Hartford.");
+      }
+
+      setPendingAirportSelection({
+        targetStep: "ORIGINS",
+        matches: airports,
+        selectedCodes: buildDefaultSelectedAirportCodes(airports)
+      });
+      return {
+        message: `I found these departure airports. Choose the ones you can actually travel from.`,
+        pause: true
+      };
+    }
+
+    if (step === "DESTINATIONS") {
+      const airports = await resolveAirportsFromText(trimmedAnswer);
+
+      if (airports.length === 0) {
+        throw new Error("I could not find a destination airport. Try SLC, LAS, Utah, or Las Vegas.");
+      }
+
+      setPendingAirportSelection({
+        targetStep: "DESTINATIONS",
+        matches: airports,
+        selectedCodes: buildDefaultSelectedAirportCodes(airports)
+      });
+      return {
+        message: `I found these destination airports. Choose the ones you want included.`,
+        pause: true
+      };
+    }
+
+    if (step === "DEPARTURE") {
+      if (!isValidDateString(trimmedAnswer)) {
+        return { message: "Use YYYY-MM-DD for now, like 2026-11-24.", pause: true };
+      }
+
+      setEarliestDepartDate(trimmedAnswer);
+    }
+
+    if (step === "LATEST_DEPARTURE") {
+      if (isSkipAnswer(trimmedAnswer)) {
+        setLatestDepartDate("");
+      } else if (!isValidDateString(trimmedAnswer)) {
+        return { message: "Use YYYY-MM-DD, or type skip.", pause: true };
+      } else {
+        setLatestDepartDate(trimmedAnswer);
+      }
+    }
+
+    if (step === "RETURN") {
+      if (!isValidDateString(trimmedAnswer)) {
+        return { message: "Use YYYY-MM-DD for now, like 2026-11-30.", pause: true };
+      }
+
+      setLatestReturnDate(trimmedAnswer);
+    }
+
+    if (step === "MIN_STAY") {
+      const days = Number(trimmedAnswer);
+
+      if (!Number.isInteger(days) || days <= 0) {
+        return { message: "Minimum stay needs to be a positive number, like 4.", pause: true };
+      }
+
+      setMinTripDays(String(days));
+    }
+
+    if (step === "MAX_STAY") {
+      if (isSkipAnswer(trimmedAnswer)) {
+        setMaxTripDays("");
+      } else {
+        const days = Number(trimmedAnswer);
+
+        if (!Number.isInteger(days) || days <= 0) {
+          return { message: "Maximum stay needs to be a positive number, or type skip.", pause: true };
+        }
+
+        setMaxTripDays(String(days));
+      }
+    }
+
+    if (step === "BUDGET") {
+      const budget = Number(trimmedAnswer.replace("$", ""));
+
+      if (!Number.isFinite(budget) || budget <= 0) {
+        return { message: "Budget needs to be a positive number, like 900.", pause: true };
+      }
+
+      setMaxPrice(String(budget));
+    }
+
+    if (step === "PHONE") {
+      setPhone(isSkipAnswer(trimmedAnswer) ? "" : trimmedAnswer);
+    }
+
+    return { message: "", pause: false };
+  }
+
+  function formatAirportMatches(airports: AirportMatch[]) {
+    return airports
+      .map((airport) => `${airport.iataCode} (${airport.municipality || airport.name})`)
+      .join(", ");
+  }
+
+  function buildDefaultSelectedAirportCodes(airports: AirportMatch[]) {
+    if (airports.length <= 3) {
+      return airports.map((airport) => airport.iataCode);
+    }
+
+    const largeAirports = airports
+      .filter((airport) => airport.type === "large_airport")
+      .map((airport) => airport.iataCode);
+
+    return (largeAirports.length > 0 ? largeAirports : airports.map((airport) => airport.iataCode)).slice(0, 3);
+  }
+
+  function togglePendingAirportCode(code: string) {
+    setPendingAirportSelection((currentSelection) => {
+      if (!currentSelection) {
+        return currentSelection;
+      }
+
+      const selectedCodes = currentSelection.selectedCodes.includes(code)
+        ? currentSelection.selectedCodes.filter((selectedCode) => selectedCode !== code)
+        : [...currentSelection.selectedCodes, code];
+
+      return {
+        ...currentSelection,
+        selectedCodes
+      };
+    });
+  }
+
+  function confirmPendingAirports() {
+    if (!pendingAirportSelection) {
+      return;
+    }
+
+    if (pendingAirportSelection.selectedCodes.length === 0) {
+      setChatError("Choose at least one airport before continuing.");
+      return;
+    }
+
+    const selectedAirports = pendingAirportSelection.matches.filter((airport) =>
+      pendingAirportSelection.selectedCodes.includes(airport.iataCode)
+    );
+    const selectedCodes = selectedAirports.map((airport) => airport.iataCode).join(", ");
+
+    if (pendingAirportSelection.targetStep === "ORIGINS") {
+      setOriginAirport(selectedCodes);
+    } else {
+      setDestinationAirport(selectedCodes);
+    }
+
+    setPendingAirportSelection(null);
+    setChatError("");
+
+    const nextStep = getNextChatStep(pendingAirportSelection.targetStep);
+    setChatStep(nextStep);
+    appendChatMessage(
+      "assistant",
+      `I will use ${formatAirportMatches(selectedAirports)}. ${getPromptForStep(nextStep)}`
+    );
+  }
+
+  async function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!chatInput.trim() || chatStep === "READY" || pendingAirportSelection) {
+      return;
+    }
+
+    const answer = chatInput.trim();
+    appendChatMessage("user", answer);
+    setChatInput("");
+    setChatError("");
+
+    let answerResult: ChatAnswerResult;
+
+    try {
+      answerResult = await applyChatAnswer(chatStep, answer);
+    } catch (airportError) {
+      appendChatMessage(
+        "assistant",
+        airportError instanceof Error
+          ? airportError.message
+          : "Something went wrong while resolving airports."
+      );
+      return;
+    }
+
+    if (answerResult.pause) {
+      appendChatMessage("assistant", answerResult.message);
+      return;
+    }
+
+    const nextStep = getNextChatStep(chatStep);
+    setChatStep(nextStep);
+
+    if (nextStep === "READY") {
+      appendChatMessage("assistant", `${buildTripSummary()} I can search the best options right now.`);
+    } else {
+      appendChatMessage(
+        "assistant",
+        answerResult.message ? `${answerResult.message} ${getPromptForStep(nextStep)}` : getPromptForStep(nextStep)
+      );
+    }
+  }
+
+  function resetChatSetup() {
+    setChatMessages(initialChatMessages);
+    setChatStep("TRIP_TYPE");
+    setChatInput("");
+    setChatStatus("");
+    setChatError("");
+    setPendingAirportSelection(null);
+    setResults([]);
+    setHasSearched(false);
   }
 
   async function fetchSavedSearches() {
@@ -198,8 +628,7 @@ export default function Home() {
     return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
   }
 
-  async function handleSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function runFlightSearch() {
     setLoading(true);
     setError("");
     setResults([]);
@@ -221,22 +650,20 @@ export default function Home() {
       const data = (await response.json()) as { results: Itinerary[] };
       setResults(data.results);
       setHasSearched(true);
+      return true;
     } catch (searchError) {
       setError(
         searchError instanceof Error
           ? searchError.message
           : "Something went wrong while searching flights."
       );
+      return false;
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleSaveSearch(event: MouseEvent<HTMLButtonElement>) {
-    if (!event.currentTarget.form?.reportValidity()) {
-      return;
-    }
-
+  async function saveFlightAlert() {
     setSaving(true);
     setSaveMessage("");
     setSaveError("");
@@ -260,14 +687,68 @@ export default function Home() {
         ...currentSavedSearches
       ]);
       setSaveMessage("Flight alert saved.");
+      return true;
     } catch (savedSearchError) {
       setSaveError(
         savedSearchError instanceof Error
           ? savedSearchError.message
           : "Something went wrong while saving this flight alert."
       );
+      return false;
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await runFlightSearch();
+  }
+
+  async function handleSaveSearch(event: MouseEvent<HTMLButtonElement>) {
+    if (!event.currentTarget.form?.reportValidity()) {
+      return;
+    }
+
+    await saveFlightAlert();
+  }
+
+  async function handleChatSearch() {
+    const validationError = getSearchValidationError();
+
+    if (validationError) {
+      setChatError(validationError);
+      return;
+    }
+
+    setChatStatus("");
+    setChatError("");
+    const searchSucceeded = await runFlightSearch();
+
+    if (searchSucceeded) {
+      setChatStatus("I found the best current options below. Turn alerts on if you want me to keep watching this trip.");
+    }
+  }
+
+  async function handleChatSaveAlert() {
+    const validationError = getSearchValidationError();
+
+    if (validationError) {
+      setChatError(validationError);
+      return;
+    }
+
+    if (!phone.trim()) {
+      setChatError("Add a phone number in the chat or form before turning SMS alerts on.");
+      return;
+    }
+
+    setChatStatus("");
+    setChatError("");
+    const saveSucceeded = await saveFlightAlert();
+
+    if (saveSucceeded) {
+      setChatStatus("Alerts are on. I saved this trip and FarePing can text you when a strong match appears.");
     }
   }
 
@@ -324,8 +805,145 @@ export default function Home() {
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-5 flex items-center gap-2">
               <Search size={20} aria-hidden="true" />
-              <h2 className="text-xl font-semibold">First search setup</h2>
+              <h2 className="text-xl font-semibold">AI flight setup</h2>
             </div>
+
+            <section className="mb-6 grid gap-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
+              <div className="flex items-center gap-2 text-fare">
+                <Sparkles size={18} aria-hidden="true" />
+                <h3 className="font-semibold">Trip assistant</h3>
+              </div>
+
+              <div className="grid max-h-80 gap-3 overflow-y-auto pr-1">
+                {chatMessages.map((message) => (
+                  <div
+                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                    key={message.id}
+                  >
+                    <p
+                      className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                        message.role === "user"
+                          ? "bg-fare text-white"
+                          : "border border-blue-100 bg-white text-slate-800"
+                      }`}
+                    >
+                      {message.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {pendingAirportSelection ? (
+                <div className="grid gap-3 rounded-lg border border-blue-100 bg-white p-3">
+                  <div>
+                    <p className="font-semibold">
+                      {pendingAirportSelection.targetStep === "ORIGINS"
+                        ? "Departure airports"
+                        : "Destination airports"}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      Uncheck anything you do not want FarePing to search.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-2">
+                    {pendingAirportSelection.matches.map((airport) => (
+                      <label
+                        className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+                        key={airport.iataCode}
+                      >
+                        <input
+                          checked={pendingAirportSelection.selectedCodes.includes(airport.iataCode)}
+                          className="mt-1"
+                          onChange={() => togglePendingAirportCode(airport.iataCode)}
+                          type="checkbox"
+                        />
+                        <span className="grid gap-1 text-sm">
+                          <span className="font-semibold">
+                            {airport.iataCode} - {airport.municipality || airport.name}
+                          </span>
+                          <span className="text-slate-700">
+                            {airport.name} · {airport.region}, {airport.country}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+
+                  <button
+                    className="inline-flex h-11 items-center justify-center rounded-md bg-fare px-4 font-semibold text-white"
+                    onClick={confirmPendingAirports}
+                    type="button"
+                  >
+                    Use selected airports
+                  </button>
+                </div>
+              ) : chatStep !== "READY" ? (
+                <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleChatSubmit}>
+                  <input
+                    className="min-h-11 flex-1 rounded-md border border-slate-300 px-3 py-2"
+                    onChange={(event) => setChatInput(event.target.value)}
+                    placeholder={getPromptForStep(chatStep)}
+                    value={chatInput}
+                  />
+                  <button
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-fare px-4 font-semibold text-white"
+                    type="submit"
+                  >
+                    <MessageCircle size={18} aria-hidden="true" />
+                    Send
+                  </button>
+                </form>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-fare px-4 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+                    disabled={loading}
+                    onClick={handleChatSearch}
+                    type="button"
+                  >
+                    <Search size={18} aria-hidden="true" />
+                    {loading ? "Searching..." : "Find best flights now"}
+                  </button>
+                  <button
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-fare px-4 font-semibold text-fare disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                    disabled={saving || results.length === 0}
+                    onClick={handleChatSaveAlert}
+                    type="button"
+                  >
+                    <Bell size={18} aria-hidden="true" />
+                    {saving ? "Saving..." : "Turn alerts on"}
+                  </button>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-slate-700">
+                  Search first shows current best flights. Alerts are only saved after you turn them on.
+                </p>
+                <button
+                  className="text-left text-sm font-semibold text-fare sm:text-right"
+                  onClick={resetChatSetup}
+                  type="button"
+                >
+                  Restart chat
+                </button>
+              </div>
+
+              {chatStatus ? (
+                <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                  {chatStatus}
+                </p>
+              ) : null}
+
+              {chatError ? (
+                <p className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+                  {chatError}
+                </p>
+              ) : null}
+            </section>
+
+            <h3 className="mb-4 font-semibold">Manual fallback form</h3>
 
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={handleSearch}>
               <div className="grid gap-2 text-sm font-medium sm:col-span-2">
@@ -367,7 +985,7 @@ export default function Home() {
                 <input
                   className="rounded-md border border-slate-300 px-3 py-2 uppercase"
                   onChange={(event) => setOriginAirport(event.target.value.toUpperCase())}
-                  placeholder="JFK"
+                  placeholder="BOS, BDL"
                   required
                   value={originAirport}
                 />
@@ -377,7 +995,7 @@ export default function Home() {
                 <input
                   className="rounded-md border border-slate-300 px-3 py-2 uppercase"
                   onChange={(event) => setDestinationAirport(event.target.value.toUpperCase())}
-                  placeholder="LAX"
+                  placeholder="SLC, LAS"
                   required
                   value={destinationAirport}
                 />
@@ -497,7 +1115,7 @@ export default function Home() {
 
             {loading ? (
               <p className="mt-5 rounded-md bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                Searching mock flight itineraries...
+                Searching flight itineraries...
               </p>
             ) : null}
 
@@ -509,13 +1127,26 @@ export default function Home() {
 
             {noResultsFound ? (
               <p className="mt-5 rounded-md bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                No mock fares met FarePing&apos;s quality threshold for this search.
+                No fares met FarePing&apos;s quality threshold for this search.
               </p>
             ) : null}
 
             {results.length > 0 ? (
               <div className="mt-6 grid gap-3">
-                <h3 className="text-lg font-semibold">Mock itinerary results</h3>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h3 className="text-lg font-semibold">Best current flight options</h3>
+                  {phone.trim() ? (
+                    <button
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-fare px-3 text-sm font-semibold text-fare disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                      disabled={saving}
+                      onClick={handleChatSaveAlert}
+                      type="button"
+                    >
+                      <Bell size={16} aria-hidden="true" />
+                      {saving ? "Saving..." : "Turn alerts on"}
+                    </button>
+                  ) : null}
+                </div>
                 {results.map((itinerary) => (
                   <article
                     className="rounded-lg border border-slate-200 bg-slate-50 p-4"
@@ -568,7 +1199,7 @@ export default function Home() {
                             rel="noreferrer"
                             target="_blank"
                           >
-                            View mock booking
+                            View booking
                           </a>
                         </div>
                       ))}
