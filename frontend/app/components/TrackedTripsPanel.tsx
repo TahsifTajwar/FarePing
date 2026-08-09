@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, Pencil, Save, X } from "lucide-react";
+import { authFetch } from "./authClient";
 import {
   type TripType,
   type SavedResultBatch,
@@ -54,7 +55,7 @@ export function TrackedTripsPanel() {
 
   async function fetchSavedSearches() {
     try {
-      const response = await fetch("http://localhost:4000/api/saved-searches");
+      const response = await authFetch("http://localhost:4000/api/saved-searches");
 
       if (!response.ok) {
         throw new Error("Could not load saved flight alerts.");
@@ -267,6 +268,14 @@ export function TrackedTripsPanel() {
     return date ? date.slice(0, 10) : "";
   }
 
+  function getDayDifference(startDate: string, endDate: string) {
+    const start = Date.parse(`${startDate}T00:00:00.000Z`);
+    const end = Date.parse(`${endDate}T00:00:00.000Z`);
+    const millisecondsPerDay = 24 * 60 * 60 * 1000;
+
+    return Math.round((end - start) / millisecondsPerDay);
+  }
+
   function buildEditForm(savedSearch: SavedSearch): EditSearchForm {
     return {
       contactPhone: savedSearch.contactPhone ?? "",
@@ -343,13 +352,42 @@ export function TrackedTripsPanel() {
       return "Choose an earliest departure date.";
     }
 
+    if (
+      editForm.tripType === "ONE_WAY" &&
+      editForm.latestDepartDate &&
+      getDayDifference(editForm.earliestDepartDate, editForm.latestDepartDate) < 0
+    ) {
+      return "Latest departure cannot be before earliest departure.";
+    }
+
     if (editForm.tripType === "ROUND_TRIP") {
       if (!editForm.latestReturnDate) {
         return "Choose a latest return date for this round trip.";
       }
 
+      const availableTripDays = getDayDifference(
+        editForm.earliestDepartDate,
+        editForm.latestReturnDate
+      );
+
+      if (availableTripDays <= 0) {
+        return "Latest return must be after earliest departure.";
+      }
+
       if (!Number(editForm.minTripDays)) {
         return "Add minimum stay days for this round trip.";
+      }
+
+      if (Number(editForm.minTripDays) > availableTripDays) {
+        return `Minimum stay cannot be more than ${availableTripDays} days for this travel window.`;
+      }
+
+      if (editForm.maxTripDays && Number(editForm.maxTripDays) < Number(editForm.minTripDays)) {
+        return "Maximum stay days cannot be less than minimum stay days.";
+      }
+
+      if (editForm.maxTripDays && Number(editForm.maxTripDays) > availableTripDays) {
+        return `Maximum stay cannot be more than ${availableTripDays} days for this travel window.`;
       }
     }
 
@@ -373,7 +411,7 @@ export function TrackedTripsPanel() {
     setError("");
 
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `http://localhost:4000/api/saved-searches/${savedSearchId}/details`,
         {
           method: "PATCH",
@@ -425,7 +463,7 @@ export function TrackedTripsPanel() {
     setError("");
 
     try {
-      const response = await fetch(`http://localhost:4000/api/saved-searches/${savedSearch.id}`, {
+      const response = await authFetch(`http://localhost:4000/api/saved-searches/${savedSearch.id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json"
@@ -470,7 +508,7 @@ export function TrackedTripsPanel() {
     setError("");
 
     try {
-      const response = await fetch(`http://localhost:4000/api/saved-searches/${savedSearch.id}`, {
+      const response = await authFetch(`http://localhost:4000/api/saved-searches/${savedSearch.id}`, {
         method: "DELETE"
       });
 

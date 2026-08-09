@@ -1,9 +1,12 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
+import { env } from "../config/env.js";
 import { prisma } from "../db/prisma.js";
+import { type AuthenticatedRequest, requireAuth } from "../middleware/auth.js";
 import {
   checkAllActiveSavedSearches,
-  checkSavedSearch
+  checkSavedSearch,
+  saveSearchResultBatch
 } from "../services/savedSearchChecker.js";
 
 export const savedSearchesRouter = Router();
@@ -37,6 +40,18 @@ const savedSearchSchema = z
     maxStops: z.coerce.number().int().min(0).optional()
   })
   .superRefine((search, ctx) => {
+    if (
+      search.tripType === "ONE_WAY" &&
+      search.latestDepartDate &&
+      getDayDifference(search.earliestDepartDate, search.latestDepartDate) < 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "latestDepartDate cannot be before earliestDepartDate.",
+        path: ["latestDepartDate"]
+      });
+    }
+
     if (search.tripType !== "ROUND_TRIP") {
       return;
     }
@@ -54,6 +69,45 @@ const savedSearchSchema = z
         code: z.ZodIssueCode.custom,
         message: "minTripDays is required for round-trip saved searches.",
         path: ["minTripDays"]
+      });
+    }
+
+    if (!search.latestReturnDate || !search.minTripDays) {
+      return;
+    }
+
+    const availableTripDays = getDayDifference(search.earliestDepartDate, search.latestReturnDate);
+
+    if (availableTripDays <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "latestReturnDate must be after earliestDepartDate.",
+        path: ["latestReturnDate"]
+      });
+      return;
+    }
+
+    if (search.minTripDays > availableTripDays) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `minTripDays cannot be more than ${availableTripDays} for this date window.`,
+        path: ["minTripDays"]
+      });
+    }
+
+    if (search.maxTripDays && search.maxTripDays < search.minTripDays) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "maxTripDays cannot be less than minTripDays.",
+        path: ["maxTripDays"]
+      });
+    }
+
+    if (search.maxTripDays && search.maxTripDays > availableTripDays) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `maxTripDays cannot be more than ${availableTripDays} for this date window.`,
+        path: ["maxTripDays"]
       });
     }
   });
@@ -76,8 +130,56 @@ const savedSearchDetailsSchema = z.object({
   maxStops: z.coerce.number().int().min(0).nullable().optional()
 });
 
+const currentResultLegSchema = z.object({
+  direction: z.enum(["OUTBOUND", "RETURN"]),
+  airline: z.string().min(1),
+  originAirport: z.string().min(3),
+  destinationAirport: z.string().min(3),
+  price: z.coerce.number().int().nonnegative(),
+  departDate: z.string().date(),
+  departTime: z.string().optional(),
+  arrivalTime: z.string().optional(),
+  durationMinutes: z.coerce.number().int().positive().optional(),
+  stops: z.coerce.number().int().min(0),
+  bookingLink: z.string().url()
+});
+
+const currentResultSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(["ROUND_TRIP", "SPLIT_ONE_WAYS", "ONE_WAY"]),
+  totalPrice: z.coerce.number().int().positive(),
+  currency: z.literal("USD"),
+  savingsComparedToRoundTrip: z.coerce.number().int().nullable(),
+  summary: z.string().min(1),
+  totalDurationMinutes: z.coerce.number().int().positive(),
+  carryOnIncluded: z.boolean().nullable(),
+  dealScore: z.coerce.number().int().min(0),
+  qualityLabel: z.string().min(1),
+  warning: z.string().nullable(),
+  legs: z.array(currentResultLegSchema).min(1)
+});
+
+const createSavedSearchSchema = savedSearchSchema.and(
+  z.object({
+    currentResults: z.array(currentResultSchema).optional()
+  })
+);
+
+type CreateSavedSearchInput = z.infer<typeof savedSearchSchema> & {
+  currentResults?: z.infer<typeof currentResultSchema>[];
+};
+
+savedSearchesRouter.post("/check-all", async (_req, res) => {
+  const checkSummary = await checkAllActiveSavedSearches();
+
+  res.status(201).json(checkSummary);
+});
+
+savedSearchesRouter.use(requireAuth);
+
 savedSearchesRouter.post("/", async (req, res) => {
-  const parsedInput = savedSearchSchema.safeParse(req.body);
+  const userId = getUserId(req);
+  const parsedInput = createSavedSearchSchema.safeParse(req.body);
 
   if (!parsedInput.success) {
     res.status(400).json({
@@ -90,10 +192,11 @@ savedSearchesRouter.post("/", async (req, res) => {
     return;
   }
 
-  const input = parsedInput.data;
+  const input = parsedInput.data as CreateSavedSearchInput;
 
   const savedSearch = await prisma.savedSearch.create({
     data: {
+      userId,
       contactPhone: input.contactPhone,
       tripType: input.tripType,
       originAirports: input.originAirports.map((airport) => airport.toUpperCase()),
@@ -111,13 +214,27 @@ savedSearchesRouter.post("/", async (req, res) => {
     }
   });
 
+  const resultBatch =
+    input.currentResults && input.currentResults.length > 0
+      ? await saveSearchResultBatch(savedSearch.id, input.currentResults)
+      : null;
+
   res.status(201).json({
-    savedSearch
+    savedSearch: resultBatch
+      ? {
+          ...savedSearch,
+          resultBatches: [resultBatch]
+        }
+      : savedSearch
   });
 });
 
-savedSearchesRouter.get("/", async (_req, res) => {
+savedSearchesRouter.get("/", async (req, res) => {
+  const userId = getUserId(req);
   const savedSearches = await prisma.savedSearch.findMany({
+    where: {
+      userId
+    },
     include: {
       resultBatches: {
         include: {
@@ -146,16 +263,12 @@ savedSearchesRouter.get("/", async (_req, res) => {
   });
 });
 
-savedSearchesRouter.post("/check-all", async (_req, res) => {
-  const checkSummary = await checkAllActiveSavedSearches();
-
-  res.status(201).json(checkSummary);
-});
-
 savedSearchesRouter.post("/:id/check", async (req, res) => {
-  const savedSearch = await prisma.savedSearch.findUnique({
+  const userId = getUserId(req);
+  const savedSearch = await prisma.savedSearch.findFirst({
     where: {
-      id: req.params.id
+      id: req.params.id,
+      userId
     }
   });
 
@@ -166,7 +279,7 @@ savedSearchesRouter.post("/:id/check", async (req, res) => {
     return;
   }
 
-  const { resultBatch, notificationDecision } = await checkSavedSearch(savedSearch);
+  const { resultBatch, notificationDecision } = await checkSavedSearch(savedSearch, env.FLIGHT_PROVIDER);
 
   res.status(201).json({
     resultBatch,
@@ -175,11 +288,13 @@ savedSearchesRouter.post("/:id/check", async (req, res) => {
 });
 
 savedSearchesRouter.patch("/:id", async (req, res) => {
+  const userId = getUserId(req);
   const input = updateSavedSearchSchema.parse(req.body);
 
-  const savedSearch = await prisma.savedSearch.findUnique({
+  const savedSearch = await prisma.savedSearch.findFirst({
     where: {
-      id: req.params.id
+      id: req.params.id,
+      userId
     }
   });
 
@@ -223,6 +338,7 @@ savedSearchesRouter.patch("/:id", async (req, res) => {
 });
 
 savedSearchesRouter.patch("/:id/details", async (req, res) => {
+  const userId = getUserId(req);
   const parsedInput = savedSearchDetailsSchema.safeParse(req.body);
 
   if (!parsedInput.success) {
@@ -236,9 +352,10 @@ savedSearchesRouter.patch("/:id/details", async (req, res) => {
     return;
   }
 
-  const savedSearch = await prisma.savedSearch.findUnique({
+  const savedSearch = await prisma.savedSearch.findFirst({
     where: {
-      id: req.params.id
+      id: req.params.id,
+      userId
     }
   });
 
@@ -313,10 +430,12 @@ savedSearchesRouter.patch("/:id/details", async (req, res) => {
 });
 
 savedSearchesRouter.delete("/:id", async (req, res) => {
+  const userId = getUserId(req);
   const savedSearchId = req.params.id;
-  const savedSearch = await prisma.savedSearch.findUnique({
+  const savedSearch = await prisma.savedSearch.findFirst({
     where: {
-      id: savedSearchId
+      id: savedSearchId,
+      userId
     }
   });
 
@@ -395,9 +514,11 @@ savedSearchesRouter.delete("/:id", async (req, res) => {
 });
 
 savedSearchesRouter.get("/:id", async (req, res) => {
-  const savedSearch = await prisma.savedSearch.findUnique({
+  const userId = getUserId(req);
+  const savedSearch = await prisma.savedSearch.findFirst({
     where: {
-      id: req.params.id
+      id: req.params.id,
+      userId
     },
     include: {
       resultBatches: {
@@ -431,8 +552,20 @@ savedSearchesRouter.get("/:id", async (req, res) => {
   });
 });
 
+function getUserId(req: Request) {
+  return (req as AuthenticatedRequest).user.id;
+}
+
 function toDate(date: string) {
   return new Date(`${date}T00:00:00.000Z`);
+}
+
+function getDayDifference(startDate: string, endDate: string) {
+  const start = Date.parse(`${startDate}T00:00:00.000Z`);
+  const end = Date.parse(`${endDate}T00:00:00.000Z`);
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+
+  return Math.round((end - start) / millisecondsPerDay);
 }
 
 function toDateInput(date: Date | null) {

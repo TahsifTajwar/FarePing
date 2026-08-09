@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Plane, Search } from "lucide-react";
+import { AuthPanel } from "../components/AuthPanel";
 import { BackButton } from "../components/BackButton";
 import { TrackedTripsPanel } from "../components/TrackedTripsPanel";
 
@@ -59,6 +60,8 @@ export default function AlertsPage() {
             Pause, delete, check now, or open a trip to see the latest ranked options.
           </p>
         </section>
+
+        <AuthPanel />
 
         <TrackedTripsPanel />
       </div>

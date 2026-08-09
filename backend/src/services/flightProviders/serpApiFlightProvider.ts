@@ -60,8 +60,23 @@ type DatePair = {
   returnDate: string;
 };
 
-const MAX_SPLIT_OPTIONS_PER_SIDE = 3;
-const MAX_ROUND_TRIP_OUTBOUND_OPTIONS = 2;
+type RoundTripBuildDiagnostics = {
+  outboundOptionsFound: number;
+  outboundOptionsWithReturnToken: number;
+  outboundOptionsFollowed: number;
+  returnTokenSearchesMade: number;
+  returnOptionsFound: number;
+  roundTripItinerariesBuilt: number;
+};
+
+type SplitOneWayBuildResult = {
+  itineraries: UnscoredItinerary[];
+  diagnostics: {
+    outboundOptionsUsed: number;
+    returnOptionsUsed: number;
+    splitItinerariesBuilt: number;
+  };
+};
 
 export const serpApiFlightProvider: FlightProvider = {
   name: "serpapi",
@@ -78,7 +93,20 @@ export const serpApiFlightProvider: FlightProvider = {
 
       return {
         provider: this.name,
-        itineraries: mapResponseToItineraries(response, "ONE_WAY")
+        itineraries: mapResponseToItineraries(response, "ONE_WAY"),
+        diagnostics: {
+          datePairsSearched: [
+            {
+              departureDate: search.earliestDepartDate
+            }
+          ],
+          apiRequestsMade: 1,
+          rawItinerariesFound: getFlightResults(response).length,
+          rawItinerariesByType: {
+            ONE_WAY: getFlightResults(response).length
+          },
+          providerErrors: []
+        }
       };
     }
 
@@ -88,6 +116,21 @@ export const serpApiFlightProvider: FlightProvider = {
 
     const datePairs = buildDatePairs(search, env.MAX_SERPAPI_DATE_PAIRS);
     const itineraries: UnscoredItinerary[] = [];
+    const providerErrors: string[] = [];
+    const roundTripDetails: RoundTripBuildDiagnostics = {
+      outboundOptionsFound: 0,
+      outboundOptionsWithReturnToken: 0,
+      outboundOptionsFollowed: 0,
+      returnTokenSearchesMade: 0,
+      returnOptionsFound: 0,
+      roundTripItinerariesBuilt: 0
+    };
+    const splitOneWayDetails = {
+      outboundOptionsUsed: 0,
+      returnOptionsUsed: 0,
+      splitItinerariesBuilt: 0
+    };
+    let apiRequestsMade = 0;
 
     for (const datePair of datePairs) {
       const roundTripSearchParams = {
@@ -100,35 +143,76 @@ export const serpApiFlightProvider: FlightProvider = {
         maxStops: search.maxStops
       };
 
-      const [roundTripOutboundResponse, outboundResponse, returnResponse] = await Promise.all([
-        fetchGoogleFlights(roundTripSearchParams),
-        fetchGoogleFlights({
-          tripType: "ONE_WAY",
-          originAirports: search.originAirports,
-          destinationAirports: search.destinationAirports,
-          departureDate: datePair.departureDate,
-          maxPrice: search.maxPrice + 50,
-          maxStops: search.maxStops
-        }),
-        fetchGoogleFlights({
-          tripType: "ONE_WAY",
-          originAirports: search.destinationAirports,
-          destinationAirports: search.originAirports,
-          departureDate: datePair.returnDate,
-          maxPrice: search.maxPrice + 50,
-          maxStops: search.maxStops
-        })
-      ]);
+      try {
+        const roundTripOutboundResponse = await fetchGoogleFlights(roundTripSearchParams);
+        apiRequestsMade += 1;
 
-      itineraries.push(
-        ...(await buildRoundTripItineraries(roundTripOutboundResponse, roundTripSearchParams)),
-        ...buildSplitOneWayItineraries(outboundResponse, returnResponse)
-      );
+        const roundTripBuild = await buildRoundTripItineraries(
+          roundTripOutboundResponse,
+          roundTripSearchParams
+        );
+        apiRequestsMade += roundTripBuild.apiRequestsMade;
+        addRoundTripDiagnostics(roundTripDetails, roundTripBuild.diagnostics);
+        itineraries.push(...roundTripBuild.itineraries);
+      } catch (error) {
+        providerErrors.push(getProviderErrorMessage(error));
+      }
+
+      if (env.SERPAPI_COMPARE_SPLIT_ONE_WAYS) {
+        const [outboundResult, returnResult] = await Promise.allSettled([
+          fetchGoogleFlights({
+            tripType: "ONE_WAY" as const,
+            originAirports: search.originAirports,
+            destinationAirports: search.destinationAirports,
+            departureDate: datePair.departureDate,
+            maxPrice: search.maxPrice + 50,
+            maxStops: search.maxStops
+          }),
+          fetchGoogleFlights({
+            tripType: "ONE_WAY" as const,
+            originAirports: search.destinationAirports,
+            destinationAirports: search.originAirports,
+            departureDate: datePair.returnDate,
+            maxPrice: search.maxPrice + 50,
+            maxStops: search.maxStops
+          })
+        ]);
+        apiRequestsMade += 2;
+
+        if (outboundResult.status === "fulfilled" && returnResult.status === "fulfilled") {
+          const splitBuild = buildSplitOneWayItineraries(outboundResult.value, returnResult.value);
+          splitOneWayDetails.outboundOptionsUsed += splitBuild.diagnostics.outboundOptionsUsed;
+          splitOneWayDetails.returnOptionsUsed += splitBuild.diagnostics.returnOptionsUsed;
+          splitOneWayDetails.splitItinerariesBuilt += splitBuild.diagnostics.splitItinerariesBuilt;
+          itineraries.push(...splitBuild.itineraries);
+        } else {
+          if (outboundResult.status === "rejected") {
+            providerErrors.push(getProviderErrorMessage(outboundResult.reason));
+          }
+
+          if (returnResult.status === "rejected") {
+            providerErrors.push(getProviderErrorMessage(returnResult.reason));
+          }
+        }
+      }
+    }
+
+    if (itineraries.length === 0 && providerErrors.length > 0) {
+      throw new Error(providerErrors[0]);
     }
 
     return {
       provider: this.name,
-      itineraries: dedupeItineraries(itineraries)
+      itineraries: dedupeItineraries(itineraries),
+      diagnostics: {
+        datePairsSearched: datePairs,
+        apiRequestsMade,
+        rawItinerariesFound: itineraries.length,
+        rawItinerariesByType: countItinerariesByType(itineraries),
+        providerErrors,
+        serpApiRoundTripDetails: roundTripDetails,
+        serpApiSplitOneWayDetails: splitOneWayDetails
+      }
     };
   }
 };
@@ -148,9 +232,13 @@ async function fetchGoogleFlights(params: SerpApiSearchParams) {
     gl: "us",
     hl: "en",
     type: params.tripType === "ROUND_TRIP" ? "1" : "2",
-    max_price: String(Math.ceil(params.maxPrice)),
+    sort_by: "2",
     no_cache: "false"
   });
+
+  if (env.SERPAPI_SHOW_HIDDEN) {
+    query.set("show_hidden", "true");
+  }
 
   if (params.returnDate) {
     query.set("return_date", params.returnDate);
@@ -181,6 +269,10 @@ async function fetchGoogleFlights(params: SerpApiSearchParams) {
   return data;
 }
 
+function getProviderErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "SerpApi flight search failed.";
+}
+
 function mapResponseToItineraries(
   response: SerpApiFlightResponse,
   itineraryType: ItineraryType,
@@ -202,9 +294,15 @@ function mapResponseToItineraries(
 function buildSplitOneWayItineraries(
   outboundResponse: SerpApiFlightResponse,
   returnResponse: SerpApiFlightResponse
-): UnscoredItinerary[] {
-  const outboundOptions = mapResponseToItineraries(outboundResponse, "ONE_WAY").slice(0, MAX_SPLIT_OPTIONS_PER_SIDE);
-  const returnOptions = mapResponseToItineraries(returnResponse, "ONE_WAY").slice(0, MAX_SPLIT_OPTIONS_PER_SIDE);
+): SplitOneWayBuildResult {
+  const outboundOptions = mapResponseToItineraries(outboundResponse, "ONE_WAY").slice(
+    0,
+    env.SERPAPI_SPLIT_OPTIONS_PER_SIDE
+  );
+  const returnOptions = mapResponseToItineraries(returnResponse, "ONE_WAY").slice(
+    0,
+    env.SERPAPI_SPLIT_OPTIONS_PER_SIDE
+  );
   const splitOptions: UnscoredItinerary[] = [];
 
   for (const outbound of outboundOptions) {
@@ -224,7 +322,7 @@ function buildSplitOneWayItineraries(
         savingsComparedToRoundTrip: null,
         summary: "Separate one-way fares found through Google Flights results.",
         totalDurationMinutes: outbound.totalDurationMinutes + returnTrip.totalDurationMinutes,
-        carryOnIncluded: outbound.carryOnIncluded && returnTrip.carryOnIncluded,
+        carryOnIncluded: combineCarryOnStatuses(outbound.carryOnIncluded, returnTrip.carryOnIncluded),
         legs: [
           {
             ...outboundLeg,
@@ -239,25 +337,38 @@ function buildSplitOneWayItineraries(
     }
   }
 
-  return dedupeItineraries(splitOptions);
+  const itineraries = dedupeItineraries(splitOptions);
+
+  return {
+    itineraries,
+    diagnostics: {
+      outboundOptionsUsed: outboundOptions.length,
+      returnOptionsUsed: returnOptions.length,
+      splitItinerariesBuilt: itineraries.length
+    }
+  };
 }
 
 async function buildRoundTripItineraries(
   outboundResponse: SerpApiFlightResponse,
   searchParams: SerpApiSearchParams
 ) {
-  const outboundOptions = getFlightResults(outboundResponse)
-    .filter((result) => result.departure_token)
-    .slice(0, MAX_ROUND_TRIP_OUTBOUND_OPTIONS);
+  const outboundResults = getFlightResults(outboundResponse);
+  const outboundOptionsWithToken = outboundResults.filter((result) => result.departure_token);
+  const outboundOptions = outboundOptionsWithToken.slice(0, env.SERPAPI_ROUND_TRIP_OUTBOUND_OPTIONS);
   const roundTrips: UnscoredItinerary[] = [];
+  let apiRequestsMade = 0;
+  let returnOptionsFound = 0;
 
   for (const [outboundIndex, outbound] of outboundOptions.entries()) {
     const returnResponse = await fetchGoogleFlights({
       ...searchParams,
       departureToken: outbound.departure_token
     });
+    apiRequestsMade += 1;
 
-    const returnOptions = getFlightResults(returnResponse).slice(0, 2);
+    const returnOptions = getFlightResults(returnResponse).slice(0, env.SERPAPI_ROUND_TRIP_RETURN_OPTIONS);
+    returnOptionsFound += returnOptions.length;
 
     for (const [returnIndex, returnTrip] of returnOptions.entries()) {
       const outboundLeg = mapSegmentsToLeg(
@@ -284,13 +395,29 @@ async function buildRoundTripItineraries(
         totalDurationMinutes:
           (outbound.total_duration ?? sumSegmentDurations(outbound.flights ?? [])) +
           (returnTrip.total_duration ?? sumSegmentDurations(returnTrip.flights ?? [])),
-        carryOnIncluded: hasCarryOnIncluded(outbound) && hasCarryOnIncluded(returnTrip),
+        carryOnIncluded: combineCarryOnStatuses(
+          getCarryOnIncludedStatus(outbound),
+          getCarryOnIncludedStatus(returnTrip)
+        ),
         legs: [outboundLeg, returnLeg]
       });
     }
   }
 
-  return dedupeItineraries(roundTrips);
+  const itineraries = dedupeItineraries(roundTrips);
+
+  return {
+    itineraries,
+    apiRequestsMade,
+    diagnostics: {
+      outboundOptionsFound: outboundResults.length,
+      outboundOptionsWithReturnToken: outboundOptionsWithToken.length,
+      outboundOptionsFollowed: outboundOptions.length,
+      returnTokenSearchesMade: apiRequestsMade,
+      returnOptionsFound,
+      roundTripItinerariesBuilt: itineraries.length
+    }
+  };
 }
 
 function mapFlightResultToItinerary(
@@ -312,7 +439,7 @@ function mapFlightResultToItinerary(
     savingsComparedToRoundTrip: null,
     summary: buildSummary(flightResult, itineraryType),
     totalDurationMinutes: flightResult.total_duration ?? sumSegmentDurations(segments),
-    carryOnIncluded: hasCarryOnIncluded(flightResult),
+    carryOnIncluded: getCarryOnIncludedStatus(flightResult),
     legs
   };
 }
@@ -360,6 +487,8 @@ function mapSegmentsToLeg(
     destinationAirport: lastSegment?.arrival_airport?.id ?? "",
     price,
     departDate: getDate(firstSegment?.departure_airport?.time),
+    departTime: getTime(firstSegment?.departure_airport?.time),
+    arrivalTime: getTime(lastSegment?.arrival_airport?.time),
     durationMinutes: getLegDurationMinutes(segments),
     stops: Math.max(segments.length - 1, 0),
     bookingLink: googleFlightsUrl ?? "https://www.google.com/travel/flights"
@@ -373,12 +502,11 @@ function getFlightResults(response: SerpApiFlightResponse) {
 }
 
 function dedupeItineraries(itineraries: UnscoredItinerary[]) {
-  const seen = new Set<string>();
+  const cheapestByFingerprint = new Map<string, UnscoredItinerary>();
 
-  return itineraries.filter((itinerary) => {
+  for (const itinerary of itineraries) {
     const fingerprint = [
       itinerary.type,
-      itinerary.totalPrice,
       itinerary.totalDurationMinutes,
       itinerary.legs
         .map((leg) =>
@@ -388,19 +516,41 @@ function dedupeItineraries(itineraries: UnscoredItinerary[]) {
             leg.originAirport,
             leg.destinationAirport,
             leg.departDate,
+            leg.departTime ?? "",
+            leg.arrivalTime ?? "",
             leg.stops
           ].join("|")
         )
         .join("||")
     ].join("::");
 
-    if (seen.has(fingerprint)) {
-      return false;
-    }
+    const existingItinerary = cheapestByFingerprint.get(fingerprint);
 
-    seen.add(fingerprint);
-    return true;
-  });
+    if (!existingItinerary || itinerary.totalPrice < existingItinerary.totalPrice) {
+      cheapestByFingerprint.set(fingerprint, itinerary);
+    }
+  }
+
+  return [...cheapestByFingerprint.values()];
+}
+
+function addRoundTripDiagnostics(
+  totalDiagnostics: RoundTripBuildDiagnostics,
+  nextDiagnostics: RoundTripBuildDiagnostics
+) {
+  totalDiagnostics.outboundOptionsFound += nextDiagnostics.outboundOptionsFound;
+  totalDiagnostics.outboundOptionsWithReturnToken += nextDiagnostics.outboundOptionsWithReturnToken;
+  totalDiagnostics.outboundOptionsFollowed += nextDiagnostics.outboundOptionsFollowed;
+  totalDiagnostics.returnTokenSearchesMade += nextDiagnostics.returnTokenSearchesMade;
+  totalDiagnostics.returnOptionsFound += nextDiagnostics.returnOptionsFound;
+  totalDiagnostics.roundTripItinerariesBuilt += nextDiagnostics.roundTripItinerariesBuilt;
+}
+
+function countItinerariesByType(itineraries: UnscoredItinerary[]) {
+  return itineraries.reduce<Partial<Record<ItineraryType, number>>>((counts, itinerary) => {
+    counts[itinerary.type] = (counts[itinerary.type] ?? 0) + 1;
+    return counts;
+  }, {});
 }
 
 function buildSummary(flightResult: SerpApiFlightResult, itineraryType: ItineraryType) {
@@ -431,7 +581,7 @@ function buildRoundTripSummary(outbound: SerpApiFlightResult, returnTrip: SerpAp
   return `round-trip result from ${airlineText}.`;
 }
 
-function hasCarryOnIncluded(flightResult: SerpApiFlightResult) {
+function getCarryOnIncludedStatus(flightResult: SerpApiFlightResult) {
   const text = [
     ...(flightResult.extensions ?? []),
     ...(flightResult.flights ?? []).flatMap((segment) => segment.extensions ?? [])
@@ -439,7 +589,44 @@ function hasCarryOnIncluded(flightResult: SerpApiFlightResult) {
     .join(" ")
     .toLowerCase();
 
-  return text.includes("carry-on") && !text.includes("carry-on bag for a fee");
+  if (!text) {
+    return null;
+  }
+
+  const hasExplicitFee =
+    text.includes("carry-on bag for a fee") ||
+    text.includes("carry on bag for a fee") ||
+    text.includes("carry-on for a fee") ||
+    text.includes("carry on for a fee") ||
+    text.includes("carry-on not included") ||
+    text.includes("carry on not included") ||
+    text.includes("no carry-on") ||
+    text.includes("no carry on");
+
+  if (hasExplicitFee) {
+    return false;
+  }
+
+  const hasIncludedCarryOn =
+    text.includes("carry-on") ||
+    text.includes("carry on") ||
+    text.includes("cabin bag") ||
+    text.includes("cabin baggage") ||
+    text.includes("hand baggage");
+
+  return hasIncludedCarryOn ? true : null;
+}
+
+function combineCarryOnStatuses(...statuses: (boolean | null)[]) {
+  if (statuses.some((status) => status === false)) {
+    return false;
+  }
+
+  if (statuses.every((status) => status === true)) {
+    return true;
+  }
+
+  return null;
 }
 
 function mapMaxStops(maxStops?: number) {
@@ -519,13 +706,56 @@ function sampleDatePairs(datePairs: DatePair[], maxDatePairs: number) {
     return datePairs;
   }
 
+  const selectedPairs: DatePair[] = [];
+  const firstDepartureDate = datePairs[0]?.departureDate;
+  const latestReturnDate = datePairs.reduce(
+    (latestDate, datePair) => (datePair.returnDate > latestDate ? datePair.returnDate : latestDate),
+    datePairs[0]?.returnDate ?? ""
+  );
+
+  addPriorityDatePairs(
+    selectedPairs,
+    datePairs.filter((datePair) => datePair.departureDate === firstDepartureDate),
+    maxDatePairs
+  );
+
+  addPriorityDatePairs(
+    selectedPairs,
+    datePairs.filter((datePair) => datePair.returnDate === latestReturnDate),
+    maxDatePairs
+  );
+
   const selectedIndexes = new Set<number>();
 
   for (let index = 0; index < maxDatePairs; index++) {
     selectedIndexes.add(Math.round((index * (datePairs.length - 1)) / Math.max(maxDatePairs - 1, 1)));
   }
 
-  return [...selectedIndexes].sort((first, second) => first - second).map((index) => datePairs[index]);
+  addPriorityDatePairs(
+    selectedPairs,
+    [...selectedIndexes].sort((first, second) => first - second).map((index) => datePairs[index]),
+    maxDatePairs
+  );
+
+  return selectedPairs;
+}
+
+function addPriorityDatePairs(selectedPairs: DatePair[], candidatePairs: DatePair[], maxDatePairs: number) {
+  for (const candidatePair of candidatePairs) {
+    if (selectedPairs.length >= maxDatePairs) {
+      return;
+    }
+
+    const alreadySelected = selectedPairs.some(
+      (selectedPair) =>
+        selectedPair.departureDate === candidatePair.departureDate &&
+        selectedPair.returnDate === candidatePair.returnDate
+    );
+
+    if (!alreadySelected) {
+      selectedPairs.push(candidatePair);
+    }
+  }
 }
 
 function sumSegmentDurations(segments: SerpApiFlightSegment[]) {
@@ -552,6 +782,10 @@ function getLegDurationMinutes(segments: SerpApiFlightSegment[]) {
 
 function getDate(dateTime?: string) {
   return dateTime?.slice(0, 10) ?? "";
+}
+
+function getTime(dateTime?: string) {
+  return dateTime?.slice(11, 16) || undefined;
 }
 
 function parseDate(date: string) {

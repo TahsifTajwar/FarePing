@@ -1,16 +1,24 @@
 import {
   type FlightSearchInput,
   type Itinerary,
+  type ItineraryType,
   type UnscoredItinerary
 } from "./flightProviders/types.js";
+import { env } from "../config/env.js";
 
 const MAX_PRICE_OVER_BUDGET = 50;
-const MIN_VISIBLE_DEAL_SCORE = 600;
 
 export function scoreFilterAndSortResults(
   results: UnscoredItinerary[],
   search: FlightSearchInput
 ): Itinerary[] {
+  return scoreFilterAndSortResultsWithDiagnostics(results, search).results;
+}
+
+export function scoreFilterAndSortResultsWithDiagnostics(
+  results: UnscoredItinerary[],
+  search: FlightSearchInput
+) {
   const allowedByStay = results.filter((result) => meetsStayRequirements(result, search));
   const maxStops = search.maxStops;
   const allowedByStops =
@@ -20,14 +28,118 @@ export function scoreFilterAndSortResults(
   const shortestDuration = Math.min(...allowedByStops.map((result) => result.totalDurationMinutes));
   const cheapestPrice = Math.min(...allowedByStops.map((result) => result.totalPrice));
 
-  return allowedByStops
+  const scoredResults = allowedByStops
     .map((result) => addDealScore(result, search, shortestDuration, cheapestPrice))
-    .filter(
+  const visibleResults = scoredResults.filter(
       (result) =>
-        result.dealScore >= MIN_VISIBLE_DEAL_SCORE &&
-        scorePrice(result.totalPrice, search.maxPrice, cheapestPrice) > 0
-    )
-    .sort((first, second) => second.dealScore - first.dealScore);
+      result.dealScore >= env.MIN_VISIBLE_DEAL_SCORE &&
+      scorePrice(result.totalPrice, search.maxPrice, cheapestPrice) > 0
+  );
+  const sortedVisibleResults = sortVisibleResults(visibleResults, search);
+  const topScoredResults = [...scoredResults].sort((first, second) => second.dealScore - first.dealScore);
+
+  return {
+    results: sortedVisibleResults,
+    diagnostics: {
+      rawItinerariesReceived: results.length,
+      rawItinerariesByType: countByType(results),
+      removedByStayRules: results.length - allowedByStay.length,
+      removedByStopsRules: allowedByStay.length - allowedByStops.length,
+      scoredItineraries: scoredResults.length,
+      hiddenByScoreOrPriceRules: scoredResults.length - visibleResults.length,
+      visibleItineraries: visibleResults.length,
+      visibleItinerariesByType: countByType(visibleResults),
+      cheapestRawPrice: Number.isFinite(cheapestPrice) ? cheapestPrice : null,
+      shortestRawDurationMinutes: Number.isFinite(shortestDuration) ? shortestDuration : null,
+      minVisibleDealScore: env.MIN_VISIBLE_DEAL_SCORE,
+      maxPriceOverBudgetShown: MAX_PRICE_OVER_BUDGET,
+      topScores: topScoredResults
+        .slice(0, 10)
+        .map((result) => ({
+          id: result.id,
+          type: result.type,
+          totalPrice: result.totalPrice,
+          totalDurationMinutes: result.totalDurationMinutes,
+          dealScore: result.dealScore,
+          visible: sortedVisibleResults.some((visibleResult) => visibleResult.id === result.id)
+        }))
+    }
+  };
+}
+
+function countByType(results: { type: ItineraryType }[]) {
+  return results.reduce<Partial<Record<ItineraryType, number>>>((counts, result) => {
+    counts[result.type] = (counts[result.type] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function sortVisibleResults(results: Itinerary[], search: FlightSearchInput) {
+  const scoreSortedResults = [...results].sort((first, second) =>
+    compareItineraries(first, second, search)
+  );
+
+  if (search.tripType !== "ROUND_TRIP") {
+    return scoreSortedResults;
+  }
+
+  const prioritizedResults: Itinerary[] = [];
+
+  addUniqueResult(prioritizedResults, scoreSortedResults[0]);
+  addUniqueResult(
+    prioritizedResults,
+    scoreSortedResults.find((result) => result.type === "ROUND_TRIP")
+  );
+
+  for (const result of scoreSortedResults) {
+    addUniqueResult(prioritizedResults, result);
+  }
+
+  return prioritizedResults;
+}
+
+function compareItineraries(first: Itinerary, second: Itinerary, search: FlightSearchInput) {
+  const firstOverBudget = first.totalPrice > search.maxPrice;
+  const secondOverBudget = second.totalPrice > search.maxPrice;
+
+  if (firstOverBudget !== secondOverBudget) {
+    return firstOverBudget ? 1 : -1;
+  }
+
+  if (search.tripType === "ROUND_TRIP") {
+    const scoreDifference = second.dealScore - first.dealScore;
+    const closeEnoughToPreferRoundTrip = Math.abs(scoreDifference) <= 35;
+
+    if (closeEnoughToPreferRoundTrip && first.type !== second.type) {
+      if (first.type === "ROUND_TRIP") {
+        return -1;
+      }
+
+      if (second.type === "ROUND_TRIP") {
+        return 1;
+      }
+    }
+  }
+
+  if (first.dealScore !== second.dealScore) {
+    return second.dealScore - first.dealScore;
+  }
+
+  if (first.totalPrice !== second.totalPrice) {
+    return first.totalPrice - second.totalPrice;
+  }
+
+  return first.totalDurationMinutes - second.totalDurationMinutes;
+}
+
+function addUniqueResult(results: Itinerary[], nextResult: Itinerary | undefined) {
+  if (!nextResult) {
+    return;
+  }
+
+  if (!results.some((result) => result.id === nextResult.id)) {
+    results.push(nextResult);
+  }
 }
 
 function addDealScore(
@@ -58,15 +170,20 @@ function scorePrice(totalPrice: number, maxPrice: number, cheapestPrice: number)
   }
 
   if (totalPrice <= maxPrice) {
-    const budgetScore = 210 * clamp(1 - totalPrice / maxPrice, 0, 1);
-    const cheapestResultScore = 140 * clamp(cheapestPrice / totalPrice, 0, 1);
+    if (totalPrice === cheapestPrice) {
+      return 350;
+    }
 
-    return Math.round(budgetScore + cheapestResultScore);
+    const priceRange = Math.max(maxPrice - cheapestPrice, 1);
+    const relativeSavingsScore = 130 * clamp((maxPrice - totalPrice) / priceRange, 0, 1);
+    const budgetComfortScore = 40 * clamp((maxPrice - totalPrice) / maxPrice, 0, 1);
+
+    return Math.round(180 + relativeSavingsScore + budgetComfortScore);
   }
 
   const amountOverBudget = totalPrice - maxPrice;
   return amountOverBudget <= MAX_PRICE_OVER_BUDGET
-    ? Math.round(240 * clamp(1 - amountOverBudget / MAX_PRICE_OVER_BUDGET, 0, 1))
+    ? Math.round(120 * clamp(1 - amountOverBudget / MAX_PRICE_OVER_BUDGET, 0, 1))
     : 0;
 }
 
@@ -163,12 +280,24 @@ function getTargetMaxTripDays(search: FlightSearchInput, minTripDays: number) {
   return minTripDays;
 }
 
-function scoreCarryOn(carryOnIncluded: boolean) {
-  return carryOnIncluded ? 50 : 10;
+function scoreCarryOn(carryOnIncluded: boolean | null) {
+  if (carryOnIncluded === true) {
+    return 50;
+  }
+
+  if (carryOnIncluded === false) {
+    return 10;
+  }
+
+  return 30;
 }
 
 function scoreSplitTicketRisk(type: Itinerary["type"]) {
-  return type === "SPLIT_ONE_WAYS" ? 18 : 25;
+  if (type === "SPLIT_ONE_WAYS") {
+    return 0;
+  }
+
+  return 25;
 }
 
 function buildQualityLabel(dealScore: number) {
@@ -198,7 +327,7 @@ function buildWarning(itinerary: UnscoredItinerary, search: FlightSearchInput) {
     warnings.push("Separate one-way tickets can have different baggage, cancellation, and change rules.");
   }
 
-  if (!itinerary.carryOnIncluded) {
+  if (itinerary.carryOnIncluded === false) {
     warnings.push("Carry-on is not included in this fare.");
   }
 

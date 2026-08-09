@@ -97,6 +97,8 @@ model ItineraryLeg {
   destinationAirport String
   price              Int
   departDate         DateTime
+  departTime         String?
+  arrivalTime        String?
   durationMinutes    Int?
   stops              Int
   bookingLink        String?

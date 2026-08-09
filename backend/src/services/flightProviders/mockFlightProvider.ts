@@ -17,7 +17,22 @@ export const mockFlightProvider: FlightProvider = {
 
     return {
       provider: this.name,
-      itineraries
+      itineraries,
+      diagnostics: {
+        datePairsSearched: [
+          {
+            departureDate: search.earliestDepartDate,
+            returnDate: search.latestReturnDate
+          }
+        ],
+        apiRequestsMade: 0,
+        rawItinerariesFound: itineraries.length,
+        rawItinerariesByType: itineraries.reduce<Record<string, number>>((counts, itinerary) => {
+          counts[itinerary.type] = (counts[itinerary.type] ?? 0) + 1;
+          return counts;
+        }, {}),
+        providerErrors: []
+      }
     };
   }
 };
@@ -96,9 +111,9 @@ function buildRoundTripResults(
   destinationAirport: string
 ): UnscoredItinerary[] {
   const maxStops = search.maxStops ?? 1;
-  const returnDate = search.latestReturnDate ?? search.earliestDepartDate;
+  const returnDate = getMockReturnDate(search);
   const roundTripPrice = 680;
-  const fastRoundTripPrice = 640;
+  const fastRoundTripPrice = 580;
   const splitOutboundPrice = 280;
   const splitReturnPrice = 240;
   const splitTotalPrice = splitOutboundPrice + splitReturnPrice;
@@ -177,8 +192,28 @@ function buildLeg(
     destinationAirport,
     price,
     departDate,
+    departTime: direction === "OUTBOUND" ? "08:00" : "17:00",
+    arrivalTime: direction === "OUTBOUND" ? "12:30" : "21:30",
     durationMinutes,
     stops,
     bookingLink: `https://example.com/book/${airline.toLowerCase()}`
   };
+}
+
+function getMockReturnDate(search: FlightSearchInput) {
+  if (!search.latestReturnDate) {
+    return search.earliestDepartDate;
+  }
+
+  const stayDays = search.maxTripDays ?? search.minTripDays ?? 3;
+  const mockReturnDate = addDays(search.earliestDepartDate, stayDays);
+
+  return mockReturnDate <= search.latestReturnDate ? mockReturnDate : search.latestReturnDate;
+}
+
+function addDays(date: string, days: number) {
+  const nextDate = new Date(`${date}T00:00:00.000Z`);
+  nextDate.setUTCDate(nextDate.getUTCDate() + days);
+
+  return nextDate.toISOString().slice(0, 10);
 }

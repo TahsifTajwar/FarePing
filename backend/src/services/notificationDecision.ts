@@ -35,6 +35,9 @@ type ItineraryLegForNotification = {
   originAirport: string;
   destinationAirport: string;
   departDate: Date;
+  departTime: string | null;
+  arrivalTime: string | null;
+  durationMinutes: number | null;
   stops: number;
 };
 
@@ -58,6 +61,30 @@ export async function maybeCreateNotification(
     return buildSkippedDecision("Best itinerary is below the notification score threshold.");
   }
 
+  const itineraryFingerprint = buildItineraryFingerprint(bestItinerary);
+  const recentSameItineraryNotification = await prisma.notification.findFirst({
+    where: {
+      savedSearchId: savedSearch.id,
+      itineraryFingerprint,
+      sentAt: {
+        gte: hoursAgo(NOTIFICATION_COOLDOWN_HOURS)
+      }
+    },
+    orderBy: {
+      sentAt: "desc"
+    }
+  });
+
+  if (recentSameItineraryNotification) {
+    if (!recentSameItineraryNotification.bestPrice) {
+      return buildSkippedDecision("Same itinerary was already notified within the cooldown window.");
+    }
+
+    if (bestItinerary.totalPrice > recentSameItineraryNotification.bestPrice - MIN_PRICE_DROP_TO_RENOTIFY) {
+      return buildSkippedDecision("Same itinerary was already notified within the cooldown window.");
+    }
+  }
+
   const recentNotification = await prisma.notification.findFirst({
     where: {
       savedSearchId: savedSearch.id,
@@ -71,10 +98,15 @@ export async function maybeCreateNotification(
   });
 
   if (recentNotification) {
-    return buildSkippedDecision("Saved search was already notified within the cooldown window.");
+    if (!recentNotification.bestPrice) {
+      return buildSkippedDecision("Saved search was already notified within the cooldown window.");
+    }
+
+    if (bestItinerary.totalPrice > recentNotification.bestPrice - MIN_PRICE_DROP_TO_RENOTIFY) {
+      return buildSkippedDecision("No meaningful price improvement since the last recent notification.");
+    }
   }
 
-  const itineraryFingerprint = buildItineraryFingerprint(bestItinerary);
   const previousSameItineraryNotification = await prisma.notification.findFirst({
     where: {
       savedSearchId: savedSearch.id,
@@ -165,6 +197,9 @@ function buildItineraryFingerprint(itinerary: ItineraryForNotification) {
         leg.originAirport,
         leg.destinationAirport,
         formatDate(leg.departDate),
+        leg.departTime ?? "",
+        leg.arrivalTime ?? "",
+        leg.durationMinutes ?? "unknown-leg-duration",
         leg.stops
       ].join(":")
     )

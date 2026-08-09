@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Plane, RefreshCw } from "lucide-react";
+import { AuthPanel } from "../../components/AuthPanel";
 import { BackButton } from "../../components/BackButton";
+import { authFetch } from "../../components/authClient";
 import {
   formatDuration,
   formatStops,
+  formatTimeRange,
   getSavedAirlineSummary,
   itineraryLabels,
   type SavedItinerary,
@@ -25,6 +28,11 @@ type AirportMatch = {
   type: string;
 };
 
+type HealthResponse = {
+  flightProvider: "mock" | "amadeus" | "serpapi";
+  scheduledFlightProvider: "mock" | "amadeus" | "serpapi";
+};
+
 export default function AlertDetailPage() {
   const params = useParams<{ id: string }>();
   const savedSearchId = params.id;
@@ -36,17 +44,36 @@ export default function AlertDetailPage() {
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+  const [checkMessage, setCheckMessage] = useState("");
+  const [flightProvider, setFlightProvider] = useState<HealthResponse["flightProvider"] | null>(
+    null
+  );
 
   useEffect(() => {
     void fetchSavedSearch();
+    void fetchBackendHealth();
   }, [savedSearchId]);
+
+  async function fetchBackendHealth() {
+    try {
+      const response = await fetch("http://localhost:4000/api/health");
+      const data = await readJsonResponse<HealthResponse>(
+        response,
+        "Could not read backend provider status."
+      );
+
+      setFlightProvider(data.flightProvider);
+    } catch {
+      setFlightProvider(null);
+    }
+  }
 
   async function fetchSavedSearch() {
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch(`http://localhost:4000/api/saved-searches/${savedSearchId}`);
+      const response = await authFetch(`http://localhost:4000/api/saved-searches/${savedSearchId}`);
       const data = await readJsonResponse<{ savedSearch: SavedSearch }>(
         response,
         "Could not load this alert."
@@ -66,11 +93,22 @@ export default function AlertDetailPage() {
   }
 
   async function handleCheckNow() {
+    if (flightProvider === "serpapi") {
+      const shouldRunLiveCheck = window.confirm(
+        "This will run a live SerpAPI flight check and may use API credits. Continue?"
+      );
+
+      if (!shouldRunLiveCheck) {
+        return;
+      }
+    }
+
     setChecking(true);
     setError("");
+    setCheckMessage("");
 
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `http://localhost:4000/api/saved-searches/${savedSearchId}/check`,
         {
           method: "POST"
@@ -81,6 +119,13 @@ export default function AlertDetailPage() {
         "Could not check this alert right now."
       );
       setLatestBatch(data.resultBatch);
+      setCheckMessage(
+        data.resultBatch.itineraries.length > 0
+          ? `Saved ${data.resultBatch.itineraries.length} ranked option${
+              data.resultBatch.itineraries.length === 1 ? "" : "s"
+            } from this check.`
+          : "Check finished. No fares met FarePing's quality threshold."
+      );
 
       if (savedSearch) {
         void fetchAirportDetails(savedSearch, data.resultBatch);
@@ -328,6 +373,8 @@ export default function AlertDetailPage() {
             </div>
           </nav>
 
+          <AuthPanel />
+
           <header className="rounded-lg border border-white/15 bg-[#07111f]/88 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.36)] backdrop-blur-xl">
             <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-start">
               <div>
@@ -350,8 +397,17 @@ export default function AlertDetailPage() {
                 type="button"
               >
                 <RefreshCw size={17} aria-hidden="true" />
-                {checking ? "Checking..." : "Check again"}
+                {checking
+                  ? "Checking..."
+                  : flightProvider === "serpapi"
+                    ? "Live check again"
+                    : "Check again"}
               </button>
+              {flightProvider === "serpapi" ? (
+                <p className="mt-2 text-center text-xs font-medium text-amber-100 lg:max-w-52">
+                  Uses live SerpAPI credits when clicked.
+                </p>
+              ) : null}
             </div>
 
             <div className="mt-6 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
@@ -387,6 +443,12 @@ export default function AlertDetailPage() {
           {error ? (
             <p className="rounded-md bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
               {error}
+            </p>
+          ) : null}
+
+          {checkMessage ? (
+            <p className="rounded-md border border-emerald-200/20 bg-emerald-200/12 px-4 py-3 text-sm font-semibold text-emerald-100">
+              {checkMessage}
             </p>
           ) : null}
 
@@ -525,6 +587,11 @@ export default function AlertDetailPage() {
                                 <p className="mt-1 font-semibold">
                                   {formatLongDate(leg.departDate)}
                                 </p>
+                                {formatTimeRange(leg.departTime, leg.arrivalTime) ? (
+                                  <p className="mt-1 text-sm font-semibold text-cyan-100">
+                                    {formatTimeRange(leg.departTime, leg.arrivalTime)}
+                                  </p>
+                                ) : null}
                                 <p className="mt-1 text-xs font-medium text-slate-500">
                                   {formatDuration(leg.durationMinutes)} · {formatStops(leg.stops)}
                                 </p>

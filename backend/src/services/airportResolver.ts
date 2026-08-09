@@ -90,7 +90,7 @@ function resolveSearchPart(searchPart: string) {
 
   const exactCodeMatches = airports
     .filter((airport) => searchPart.toUpperCase() === airport.iataCode)
-    .map((airport) => ({ airport, score: 1000 + getAirportTypeScore(airport.type) }));
+    .map((airport) => ({ airport, score: 1000 + getAirportTypeScore(airport.type) + getPhraseSpecificityScore(searchPart) }));
 
   if (exactCodeMatches.length > 0) {
     return exactCodeMatches;
@@ -98,18 +98,24 @@ function resolveSearchPart(searchPart: string) {
 
   const exactCityMatches = airports
     .filter((airport) => normalize(airport.municipality) === searchPart)
-    .map((airport) => ({ airport, score: 900 + getAirportTypeScore(airport.type) }));
+    .map((airport) => ({ airport, score: 900 + getAirportTypeScore(airport.type) + getPhraseSpecificityScore(searchPart) }));
 
   if (exactCityMatches.length > 0) {
-    return exactCityMatches;
+    return mergeScoredAirportMatches([
+      ...exactCityMatches,
+      ...getRelatedPlaceMatches(airports, searchPart, 820)
+    ]);
   }
 
   const exactNameMatches = airports
     .filter((airport) => normalize(airport.name) === searchPart)
-    .map((airport) => ({ airport, score: 850 + getAirportTypeScore(airport.type) }));
+    .map((airport) => ({ airport, score: 850 + getAirportTypeScore(airport.type) + getPhraseSpecificityScore(searchPart) }));
 
   if (exactNameMatches.length > 0) {
-    return exactNameMatches;
+    return mergeScoredAirportMatches([
+      ...exactNameMatches,
+      ...getRelatedPlaceMatches(airports, searchPart, 800)
+    ]);
   }
 
   const stateRegion = usStateRegions[searchPart];
@@ -123,6 +129,40 @@ function resolveSearchPart(searchPart: string) {
   return airports
     .map((airport) => ({ airport, score: scoreFuzzyAirportMatch(airport, searchPart) }))
     .filter((match) => match.score > 0);
+}
+
+function getRelatedPlaceMatches(airports: AirportRecord[], searchPart: string, baseScore: number) {
+  return airports
+    .map((airport) => {
+      const airportTypeScore = getAirportTypeScore(airport.type);
+      const municipality = normalize(airport.municipality);
+      const airportName = normalize(airport.name);
+
+      if (municipality !== searchPart && isPhraseMatch(municipality, searchPart)) {
+        return { airport, score: baseScore + airportTypeScore };
+      }
+
+      if (airportName !== searchPart && isPhraseMatch(airportName, searchPart)) {
+        return { airport, score: baseScore - 20 + airportTypeScore };
+      }
+
+      return { airport, score: 0 };
+    })
+    .filter((match) => match.score > 0);
+}
+
+function mergeScoredAirportMatches(matches: { airport: AirportRecord; score: number }[]) {
+  const bestMatches = new Map<string, { airport: AirportRecord; score: number }>();
+
+  matches.forEach((match) => {
+    const currentMatch = bestMatches.get(match.airport.iataCode);
+
+    if (!currentMatch || match.score > currentMatch.score) {
+      bestMatches.set(match.airport.iataCode, match);
+    }
+  });
+
+  return [...bestMatches.values()];
 }
 
 function getAirports() {
@@ -213,15 +253,15 @@ function extractKnownSearchParts(query: string) {
 function scoreFuzzyAirportMatch(airport: AirportRecord, searchPart: string) {
   const airportTypeScore = getAirportTypeScore(airport.type);
 
-  if (normalize(airport.name).includes(searchPart)) {
+  if (isPhraseMatch(normalize(airport.name), searchPart)) {
     return 620 + airportTypeScore;
   }
 
-  if (normalize(airport.municipality).includes(searchPart)) {
+  if (isPhraseMatch(normalize(airport.municipality), searchPart)) {
     return 600 + airportTypeScore;
   }
 
-  if (normalize(airport.keywords).includes(searchPart)) {
+  if (isPhraseMatch(normalize(airport.keywords), searchPart)) {
     return 520 + airportTypeScore;
   }
 
@@ -267,5 +307,27 @@ function parseCsvLine(line: string) {
 }
 
 function normalize(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ");
+}
+
+function getPhraseSpecificityScore(searchPart: string) {
+  return splitWords(searchPart).length * 10;
+}
+
+function isPhraseMatch(value: string, searchPart: string) {
+  const valueWords = splitWords(value);
+  const searchWords = splitWords(searchPart);
+
+  if (searchWords.length === 0) {
+    return false;
+  }
+
+  return searchWords.every((word) => valueWords.includes(word));
+}
+
+function splitWords(value: string) {
+  return value
+    .split(/[^a-z0-9]+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
 }

@@ -49,6 +49,8 @@ export type SavedItineraryLeg = {
   destinationAirport: string;
   price: number;
   departDate: string;
+  departTime: string | null;
+  arrivalTime: string | null;
   durationMinutes: number | null;
   stops: number;
   bookingLink: string | null;
@@ -99,6 +101,45 @@ export function formatShortDate(date: string) {
     month: "short",
     day: "numeric"
   }).format(parsedDate);
+}
+
+export function formatClockTime(time: string | null | undefined) {
+  if (!time) {
+    return "";
+  }
+
+  const [hourText, minuteText] = time.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return time;
+  }
+
+  const hour12 = hour % 12 || 12;
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const paddedMinute = String(minute).padStart(2, "0");
+
+  return `${hour12}:${paddedMinute} ${suffix}`;
+}
+
+export function formatTimeRange(departTime: string | null | undefined, arrivalTime: string | null | undefined) {
+  const formattedDepartTime = formatClockTime(departTime);
+  const formattedArrivalTime = formatClockTime(arrivalTime);
+
+  if (formattedDepartTime && formattedArrivalTime) {
+    return `${formattedDepartTime} -> ${formattedArrivalTime}`;
+  }
+
+  if (formattedDepartTime) {
+    return `Leaves ${formattedDepartTime}`;
+  }
+
+  if (formattedArrivalTime) {
+    return `Arrives ${formattedArrivalTime}`;
+  }
+
+  return "";
 }
 
 export function getSavedItineraryRoute(itinerary: SavedItinerary) {

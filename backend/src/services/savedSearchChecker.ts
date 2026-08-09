@@ -55,12 +55,25 @@ export async function checkAllActiveSavedSearches() {
   };
 }
 
-export async function checkSavedSearch(savedSearch: SavedSearchForCheck) {
-  const flightResults = await searchFlights(buildFlightSearchInput(savedSearch), env.SCHEDULED_FLIGHT_PROVIDER);
+export async function checkSavedSearch(
+  savedSearch: SavedSearchForCheck,
+  providerName = env.SCHEDULED_FLIGHT_PROVIDER
+) {
+  const flightResults = await searchFlights(buildFlightSearchInput(savedSearch), providerName);
+  const resultBatch = await saveSearchResultBatch(savedSearch.id, flightResults);
 
+  const notificationDecision = await maybeCreateNotification(savedSearch, resultBatch);
+
+  return {
+    resultBatch,
+    notificationDecision
+  };
+}
+
+export async function saveSearchResultBatch(savedSearchId: string, flightResults: Itinerary[]) {
   const resultBatch = await prisma.searchResultBatch.create({
     data: {
-      savedSearchId: savedSearch.id,
+      savedSearchId,
       bestPrice: flightResults[0]?.totalPrice ?? null,
       itineraries: {
         create: flightResults.map((itinerary) => buildItineraryCreateInput(itinerary))
@@ -78,12 +91,7 @@ export async function checkSavedSearch(savedSearch: SavedSearchForCheck) {
     }
   });
 
-  const notificationDecision = await maybeCreateNotification(savedSearch, resultBatch);
-
-  return {
-    resultBatch,
-    notificationDecision
-  };
+  return resultBatch;
 }
 
 function formatDate(date: Date) {
@@ -125,6 +133,8 @@ function buildItineraryCreateInput(itinerary: Itinerary) {
         destinationAirport: leg.destinationAirport,
         price: leg.price,
         departDate: toDate(leg.departDate),
+        departTime: leg.departTime ?? null,
+        arrivalTime: leg.arrivalTime ?? null,
         durationMinutes: leg.durationMinutes,
         stops: leg.stops,
         bookingLink: leg.bookingLink

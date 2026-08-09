@@ -1,9 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { Bell, MessageCircle, Plane, Search, Sparkles } from "lucide-react";
+import { AuthPanel } from "../components/AuthPanel";
 import { BackButton } from "../components/BackButton";
+import { authFetch } from "../components/authClient";
+import {
+  currentResultsStorageKey,
+  type CurrentResultsSession,
+  type FlightSearchRequest,
+  type Itinerary,
+  type SearchDiagnostics
+} from "../components/currentFlightTypes";
 
 type TripType = "ROUND_TRIP" | "ONE_WAY";
 
@@ -56,48 +66,86 @@ type PendingAirportSelection = {
   selectedCodes: string[];
 };
 
-type ItineraryLeg = {
-  direction: "OUTBOUND" | "RETURN";
-  airline: string;
+type SearchPageDraft = {
+  tripType: TripType;
   originAirport: string;
   destinationAirport: string;
-  price: number;
-  departDate: string;
-  durationMinutes?: number;
-  stops: number;
-  bookingLink: string;
+  earliestDepartDate: string;
+  latestDepartDate: string;
+  latestReturnDate: string;
+  minTripDays: string;
+  maxTripDays: string;
+  minTripDaysProvided: boolean;
+  maxTripDaysProvided: boolean;
+  maxTripDaysFlexible: boolean;
+  maxPrice: string;
+  phone: string;
+  showManualForm: boolean;
+  chatMessages: ChatMessage[];
+  chatInput: string;
+  chatReadyToSearch: boolean;
+  chatTripTypeSet: boolean;
+  chatAwaitingPhoneForAlert: boolean;
+  pendingAirportSelection: PendingAirportSelection | null;
+  airportSelectionQueue: PendingAirportSelection[];
+  airportSelectionFollowUp: string;
 };
 
-type Itinerary = {
-  id: string;
-  type: "ROUND_TRIP" | "SPLIT_ONE_WAYS" | "ONE_WAY";
-  totalPrice: number;
-  currency: "USD";
-  savingsComparedToRoundTrip: number | null;
-  summary: string;
-  totalDurationMinutes: number;
-  dealScore: number;
-  qualityLabel: string;
-  warning: string | null;
-  carryOnIncluded: boolean;
-  legs: ItineraryLeg[];
-};
-
-const itineraryLabels = {
-  ROUND_TRIP: "Round trip",
-  SPLIT_ONE_WAYS: "Split one-ways",
-  ONE_WAY: "One way"
-};
+const searchPageDraftStorageKey = "fareping-search-page-draft-v1";
 
 const initialChatMessages: ChatMessage[] = [
   {
     id: "assistant-start",
     role: "assistant",
-    text: "Where are you headed?"
+    text: "Hi, I'm Luna. Ready when you are. Share any trip detail to start."
   }
 ];
 
+function readSearchPageDraft() {
+  try {
+    const savedDraft = sessionStorage.getItem(searchPageDraftStorageKey);
+
+    if (!savedDraft) {
+      return null;
+    }
+
+    const parsedDraft = JSON.parse(savedDraft) as Partial<SearchPageDraft>;
+
+    if (!Array.isArray(parsedDraft.chatMessages) || parsedDraft.chatMessages.length === 0) {
+      return null;
+    }
+
+    return {
+      tripType: parsedDraft.tripType === "ONE_WAY" ? "ONE_WAY" : "ROUND_TRIP",
+      originAirport: parsedDraft.originAirport ?? "",
+      destinationAirport: parsedDraft.destinationAirport ?? "",
+      earliestDepartDate: parsedDraft.earliestDepartDate ?? "",
+      latestDepartDate: parsedDraft.latestDepartDate ?? "",
+      latestReturnDate: parsedDraft.latestReturnDate ?? "",
+      minTripDays: parsedDraft.minTripDays ?? "",
+      maxTripDays: parsedDraft.maxTripDays ?? "",
+      minTripDaysProvided: Boolean(parsedDraft.minTripDaysProvided),
+      maxTripDaysProvided: Boolean(parsedDraft.maxTripDaysProvided),
+      maxTripDaysFlexible: Boolean(parsedDraft.maxTripDaysFlexible),
+      maxPrice: parsedDraft.maxPrice ?? "",
+      phone: parsedDraft.phone ?? "",
+      showManualForm: Boolean(parsedDraft.showManualForm),
+      chatMessages: parsedDraft.chatMessages,
+      chatInput: parsedDraft.chatInput ?? "",
+      chatReadyToSearch: Boolean(parsedDraft.chatReadyToSearch),
+      chatTripTypeSet: Boolean(parsedDraft.chatTripTypeSet),
+      chatAwaitingPhoneForAlert: Boolean(parsedDraft.chatAwaitingPhoneForAlert),
+      pendingAirportSelection: parsedDraft.pendingAirportSelection ?? null,
+      airportSelectionQueue: parsedDraft.airportSelectionQueue ?? [],
+      airportSelectionFollowUp: parsedDraft.airportSelectionFollowUp ?? ""
+    } satisfies SearchPageDraft;
+  } catch {
+    return null;
+  }
+}
+
 export default function Home() {
+  const router = useRouter();
   const [tripType, setTripType] = useState<TripType>("ROUND_TRIP");
   const [originAirport, setOriginAirport] = useState("");
   const [destinationAirport, setDestinationAirport] = useState("");
@@ -119,6 +167,7 @@ export default function Home() {
   const [saveMessage, setSaveMessage] = useState("");
   const [saveError, setSaveError] = useState("");
   const [showManualForm, setShowManualForm] = useState(false);
+  const [hasCurrentResults, setHasCurrentResults] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialChatMessages);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -130,7 +179,101 @@ export default function Home() {
   const [pendingAirportSelection, setPendingAirportSelection] =
     useState<PendingAirportSelection | null>(null);
   const [airportSelectionQueue, setAirportSelectionQueue] = useState<PendingAirportSelection[]>([]);
+  const [airportSelectionFollowUp, setAirportSelectionFollowUp] = useState("");
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const hasSkippedInitialDraftSave = useRef(false);
+
+  useEffect(() => {
+    setHasCurrentResults(Boolean(sessionStorage.getItem(currentResultsStorageKey)));
+  }, []);
+
+  useEffect(() => {
+    const savedDraft = readSearchPageDraft();
+
+    if (!savedDraft) {
+      return;
+    }
+
+    setTripType(savedDraft.tripType);
+    setOriginAirport(savedDraft.originAirport);
+    setDestinationAirport(savedDraft.destinationAirport);
+    setEarliestDepartDate(savedDraft.earliestDepartDate);
+    setLatestDepartDate(savedDraft.latestDepartDate);
+    setLatestReturnDate(savedDraft.latestReturnDate);
+    setMinTripDays(savedDraft.minTripDays);
+    setMaxTripDays(savedDraft.maxTripDays);
+    setMinTripDaysProvided(savedDraft.minTripDaysProvided);
+    setMaxTripDaysProvided(savedDraft.maxTripDaysProvided);
+    setMaxTripDaysFlexible(savedDraft.maxTripDaysFlexible);
+    setMaxPrice(savedDraft.maxPrice);
+    setPhone(savedDraft.phone);
+    setShowManualForm(savedDraft.showManualForm);
+    setChatMessages(savedDraft.chatMessages);
+    setChatInput(savedDraft.chatInput);
+    setChatReadyToSearch(savedDraft.chatReadyToSearch);
+    setChatTripTypeSet(savedDraft.chatTripTypeSet);
+    setChatAwaitingPhoneForAlert(savedDraft.chatAwaitingPhoneForAlert);
+    setPendingAirportSelection(savedDraft.pendingAirportSelection);
+    setAirportSelectionQueue(savedDraft.airportSelectionQueue);
+    setAirportSelectionFollowUp(savedDraft.airportSelectionFollowUp);
+  }, []);
+
+  useEffect(() => {
+    if (!hasSkippedInitialDraftSave.current) {
+      hasSkippedInitialDraftSave.current = true;
+      return;
+    }
+
+    const draft: SearchPageDraft = {
+      tripType,
+      originAirport,
+      destinationAirport,
+      earliestDepartDate,
+      latestDepartDate,
+      latestReturnDate,
+      minTripDays,
+      maxTripDays,
+      minTripDaysProvided,
+      maxTripDaysProvided,
+      maxTripDaysFlexible,
+      maxPrice,
+      phone,
+      showManualForm,
+      chatMessages,
+      chatInput,
+      chatReadyToSearch,
+      chatTripTypeSet,
+      chatAwaitingPhoneForAlert,
+      pendingAirportSelection,
+      airportSelectionQueue,
+      airportSelectionFollowUp
+    };
+
+    sessionStorage.setItem(searchPageDraftStorageKey, JSON.stringify(draft));
+  }, [
+    tripType,
+    originAirport,
+    destinationAirport,
+    earliestDepartDate,
+    latestDepartDate,
+    latestReturnDate,
+    minTripDays,
+    maxTripDays,
+    minTripDaysProvided,
+    maxTripDaysProvided,
+    maxTripDaysFlexible,
+    maxPrice,
+    phone,
+    showManualForm,
+    chatMessages,
+    chatInput,
+    chatReadyToSearch,
+    chatTripTypeSet,
+    chatAwaitingPhoneForAlert,
+    pendingAirportSelection,
+    airportSelectionQueue,
+    airportSelectionFollowUp
+  ]);
 
   useEffect(() => {
     const chatMessagesElement = chatMessagesRef.current;
@@ -153,7 +296,10 @@ export default function Home() {
     }
   }
 
-  function buildSearchRequestBody(includeContactPhone = false, contactPhoneOverride?: string) {
+  function buildSearchRequestBody(
+    includeContactPhone = false,
+    contactPhoneOverride?: string
+  ): FlightSearchRequest {
     const contactPhone = contactPhoneOverride ?? phone.trim();
 
     return {
@@ -175,6 +321,22 @@ export default function Home() {
     };
   }
 
+  function saveCurrentResultsSession(
+    requestBody: FlightSearchRequest,
+    searchResults: Itinerary[],
+    diagnostics?: SearchDiagnostics
+  ) {
+    const currentResultsSession: CurrentResultsSession = {
+      requestBody,
+      results: searchResults,
+      diagnostics,
+      searchedAt: new Date().toISOString()
+    };
+
+    sessionStorage.setItem(currentResultsStorageKey, JSON.stringify(currentResultsSession));
+    setHasCurrentResults(true);
+  }
+
   async function readJsonResponse<T>(response: Response, fallbackMessage: string) {
     const responseText = await response.text();
     let data: unknown = {};
@@ -186,12 +348,28 @@ export default function Home() {
     }
 
     if (!response.ok) {
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "issues" in data &&
+        Array.isArray(data.issues) &&
+        data.issues.length > 0
+      ) {
+        const firstIssue = data.issues[0] as { message?: string };
+        throw new Error(firstIssue.message ?? fallbackMessage);
+      }
+
       const errorMessage =
         typeof data === "object" &&
         data !== null &&
-        "error" in data &&
-        typeof data.error === "string"
-          ? data.error
+        "message" in data &&
+        typeof data.message === "string"
+          ? data.message
+          : typeof data === "object" &&
+              data !== null &&
+              "error" in data &&
+              typeof data.error === "string"
+            ? data.error
           : fallbackMessage;
 
       throw new Error(errorMessage);
@@ -219,6 +397,14 @@ export default function Home() {
     return /^\d{4}-\d{2}-\d{2}$/.test(date);
   }
 
+  function getDayDifference(startDate: string, endDate: string) {
+    const start = Date.parse(`${startDate}T00:00:00.000Z`);
+    const end = Date.parse(`${endDate}T00:00:00.000Z`);
+    const millisecondsPerDay = 24 * 60 * 60 * 1000;
+
+    return Math.round((end - start) / millisecondsPerDay);
+  }
+
   function isSkipAnswer(answer: string) {
     return ["skip", "cancel", "no", "nah", "not now", "later"].includes(answer.trim().toLowerCase());
   }
@@ -242,17 +428,44 @@ export default function Home() {
       return "Earliest departure needs to be in YYYY-MM-DD format.";
     }
 
+    if (
+      tripType === "ONE_WAY" &&
+      latestDepartDate &&
+      isValidDateString(latestDepartDate) &&
+      getDayDifference(earliestDepartDate, latestDepartDate) < 0
+    ) {
+      return "Latest departure cannot be before earliest departure.";
+    }
+
     if (tripType === "ROUND_TRIP") {
       if (!isValidDateString(latestReturnDate)) {
         return "Latest return needs to be in YYYY-MM-DD format.";
+      }
+
+      const availableTripDays = getDayDifference(earliestDepartDate, latestReturnDate);
+
+      if (availableTripDays <= 0) {
+        return "Latest return must be after earliest departure.";
       }
 
       if (!Number(minTripDays) || !minTripDaysProvided) {
         return "Minimum stay days needs to be a number.";
       }
 
+      if (Number(minTripDays) > availableTripDays) {
+        return `Minimum stay cannot be more than ${availableTripDays} days for this travel window.`;
+      }
+
       if ((!Number(maxTripDays) || !maxTripDaysProvided) && !maxTripDaysFlexible) {
         return "Maximum stay days needs to be a number. This helps FarePing score trip length correctly.";
+      }
+
+      if (!maxTripDaysFlexible && Number(maxTripDays) < Number(minTripDays)) {
+        return "Maximum stay days cannot be less than minimum stay days.";
+      }
+
+      if (!maxTripDaysFlexible && Number(maxTripDays) > availableTripDays) {
+        return `Maximum stay cannot be more than ${availableTripDays} days for this travel window.`;
       }
     }
 
@@ -334,10 +547,11 @@ export default function Home() {
 
   function buildPendingAirportSelections(response: TripAssistantResponse) {
     const selections: PendingAirportSelection[] = [];
+    const draft = response.tripDraft;
 
     if (
       response.airportOptions.origins.length > 0 &&
-      response.tripDraft.originAirports.length === 0
+      draft.originAirports.length === 0
     ) {
       selections.push({
         target: "ORIGINS",
@@ -348,7 +562,7 @@ export default function Home() {
 
     if (
       response.airportOptions.destinations.length > 0 &&
-      response.tripDraft.destinationAirports.length === 0
+      draft.destinationAirports.length === 0
     ) {
       selections.push({
         target: "DESTINATIONS",
@@ -457,10 +671,17 @@ export default function Home() {
         } airports.`
       );
     } else if (chatReadyToSearch) {
+      setAirportSelectionFollowUp("");
       appendChatMessage(
         "assistant",
         `I will use ${formatAirportMatches(selectedAirports)}. I can search the best current options now.`
       );
+    } else if (airportSelectionFollowUp) {
+      appendChatMessage(
+        "assistant",
+        `I will use ${formatAirportMatches(selectedAirports)}. ${airportSelectionFollowUp}`
+      );
+      setAirportSelectionFollowUp("");
     } else {
       appendChatMessage("assistant", `I will use ${formatAirportMatches(selectedAirports)}.`);
     }
@@ -545,11 +766,20 @@ export default function Home() {
 
       applyTripDraftToForm(assistantResponse.tripDraft);
       setChatReadyToSearch(getAssistantReadyToSearch(assistantResponse));
-      appendChatMessage("assistant", assistantResponse.reply);
 
       if (airportSelections.length > 0) {
+        appendChatMessage(
+          "assistant",
+          `Choose the ${
+            airportSelections[0].target === "ORIGINS" ? "departure" : "destination"
+          } airports you want FarePing to search.`
+        );
         setPendingAirportSelection(airportSelections[0]);
         setAirportSelectionQueue(airportSelections.slice(1));
+        setAirportSelectionFollowUp(assistantResponse.reply);
+      } else {
+        appendChatMessage("assistant", assistantResponse.reply);
+        setAirportSelectionFollowUp("");
       }
     } catch (assistantError) {
       setChatError(
@@ -563,6 +793,7 @@ export default function Home() {
   }
 
   function resetChatSetup() {
+    sessionStorage.removeItem(searchPageDraftStorageKey);
     setChatMessages(initialChatMessages);
     setChatInput("");
     setChatLoading(false);
@@ -573,6 +804,7 @@ export default function Home() {
     setChatError("");
     setPendingAirportSelection(null);
     setAirportSelectionQueue([]);
+    setAirportSelectionFollowUp("");
     setTripType("ROUND_TRIP");
     setOriginAirport("");
     setDestinationAirport("");
@@ -588,6 +820,8 @@ export default function Home() {
     setPhone("");
     setResults([]);
     setHasSearched(false);
+    setHasCurrentResults(false);
+    sessionStorage.removeItem(currentResultsStorageKey);
     setShowManualForm(false);
   }
 
@@ -655,6 +889,7 @@ export default function Home() {
     setError("");
     setResults([]);
     setHasSearched(false);
+    const requestBody = buildSearchRequestBody();
 
     try {
       const response = await fetch("http://localhost:4000/api/flights/search", {
@@ -662,15 +897,24 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(buildSearchRequestBody())
+        body: JSON.stringify(requestBody)
       });
 
-      const data = await readJsonResponse<{ results: Itinerary[] }>(
+      const data = await readJsonResponse<{
+        results: Itinerary[];
+        diagnostics?: SearchDiagnostics;
+      }>(
         response,
         "Flight search failed. Make sure the backend is running, then try again."
       );
       setResults(data.results);
       setHasSearched(true);
+
+      if (data.results.length > 0) {
+        saveCurrentResultsSession(requestBody, data.results, data.diagnostics);
+        router.push("/results/current");
+      }
+
       return data.results;
     } catch (searchError) {
       setError(
@@ -690,12 +934,17 @@ export default function Home() {
     setSaveError("");
 
     try {
-      const response = await fetch("http://localhost:4000/api/saved-searches", {
+      const requestBody = {
+        ...buildSearchRequestBody(true, contactPhoneOverride),
+        ...(results.length > 0 ? { currentResults: results } : {})
+      };
+
+      const response = await authFetch("http://localhost:4000/api/saved-searches", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(buildSearchRequestBody(true, contactPhoneOverride))
+        body: JSON.stringify(requestBody)
       });
 
       await readJsonResponse<{ savedSearch: unknown }>(
@@ -869,6 +1118,8 @@ export default function Home() {
             </nav>
           </div>
 
+          <AuthPanel />
+
           <div className="grid flex-1 items-start justify-center gap-5 lg:grid-cols-[minmax(0,820px)_360px]">
             <section
               className="grid gap-4"
@@ -878,10 +1129,10 @@ export default function Home() {
                 <div>
                   <p className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-cyan-100">
                     <Sparkles size={16} aria-hidden="true" />
-                    Trip assistant
+                    Luna
                   </p>
                   <h2 className="text-4xl font-bold leading-tight tracking-normal sm:text-5xl">
-                    Start with a sentence.
+                    Start with any detail.
                   </h2>
                 </div>
                 <button
@@ -974,7 +1225,7 @@ export default function Home() {
                       <input
                         className="min-h-12 flex-1 rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
                         onChange={(event) => setChatInput(event.target.value)}
-                        placeholder="Tell me your trip details or answer the assistant..."
+                        placeholder="Type your route, dates, budget, or answer Luna..."
                         value={chatInput}
                       />
                     <button
@@ -988,7 +1239,7 @@ export default function Home() {
                     </div>
                     {chatLoading ? (
                       <p className="text-xs font-semibold text-cyan-100">
-                        FarePing is reading your trip...
+                        Luna is reading your trip...
                       </p>
                     ) : null}
                   </form>
@@ -1014,6 +1265,14 @@ export default function Home() {
                       <Bell size={18} aria-hidden="true" />
                       {saving ? "Saving..." : "Turn alerts on"}
                     </button>
+                    {hasCurrentResults ? (
+                      <Link
+                        className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-white/15 bg-white/[0.06] px-4 font-semibold text-slate-100 transition hover:bg-white/10 sm:col-span-2"
+                        href="/results/current"
+                      >
+                        View current results
+                      </Link>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -1241,7 +1500,7 @@ export default function Home() {
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-cyan-100">Current trip</p>
-                  <p className="mt-1 text-xs text-slate-400">Updates as the assistant learns.</p>
+                  <p className="mt-1 text-xs text-slate-400">Updates as Luna learns.</p>
                 </div>
                 <span className="rounded-full border border-white/12 bg-white/8 px-3 py-1 text-xs font-semibold text-slate-200">
                   {tripTypeLabel}
@@ -1292,144 +1551,6 @@ export default function Home() {
             </aside>
           </div>
 
-          {results.length > 0 ? (
-            <section className="grid gap-4 pb-10" id="results">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-cyan-100">Current results</p>
-                  <h2 className="text-2xl font-bold tracking-normal">
-                    Best options from this search
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Showing {results.length} ranked option{results.length === 1 ? "" : "s"} right now.
-                    Nothing is saved unless you turn alerts on.
-                  </p>
-                </div>
-                <button
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-cyan-100 px-4 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-100 hover:text-[#07111f] disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
-                  disabled={saving}
-                  onClick={handleChatSaveAlert}
-                  type="button"
-                >
-                  <Bell size={16} aria-hidden="true" />
-                  {saving ? "Saving..." : "Turn this into an alert"}
-                </button>
-              </div>
-
-              <div className="grid gap-3">
-                {results.map((itinerary, index) => {
-                  const firstLeg = itinerary.legs[0];
-                  const totalStops = getTotalStops(itinerary);
-                  const shouldShowSeparateBookingLinks = itinerary.type === "SPLIT_ONE_WAYS";
-                  const primaryBookingLink = firstLeg?.bookingLink ?? "#";
-
-                  return (
-                    <article
-                      className="fareping-message-in overflow-hidden rounded-lg border border-cyan-100/15 bg-[#07111f]/88 shadow-[0_24px_70px_rgba(0,0,0,0.36)] backdrop-blur-xl transition hover:border-cyan-100/30 hover:bg-[#0a1628]/90"
-                      key={itinerary.id}
-                    >
-                      <div className="grid gap-4 p-4 sm:grid-cols-[1fr_auto] sm:p-5">
-                        <div>
-                          <div className="mb-3 flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-bold text-[#07111f]">
-                              {index === 0 ? "Best match" : itinerary.qualityLabel}
-                            </span>
-                            <span className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-1 text-xs font-semibold text-slate-300">
-                              {itineraryLabels[itinerary.type]}
-                            </span>
-                            <span className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-1 text-xs font-semibold text-slate-300">
-                              {formatStops(totalStops)}
-                            </span>
-                          </div>
-
-                          <h3 className="text-2xl font-bold tracking-normal">
-                            {getItineraryRoute(itinerary)}
-                          </h3>
-                            <p className="mt-2 text-sm leading-6 text-slate-300">
-                            {getAirlineSummary(itinerary)}
-                            {firstLeg ? ` · leaves ${formatShortDate(firstLeg.departDate)}` : ""}
-                            {itinerary.carryOnIncluded ? " · carry-on included" : ""}
-                          </p>
-                          {itinerary.savingsComparedToRoundTrip ? (
-                            <p className="mt-2 text-sm font-semibold text-cyan-100">
-                              Split-ticket estimate: about {itinerary.currency}{" "}
-                              {itinerary.savingsComparedToRoundTrip} below a similar round-trip option we checked.
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <div className="sm:text-right">
-                          <p className="text-sm font-semibold text-slate-400">Total</p>
-                          <p className="text-3xl font-bold text-cyan-100">
-                            {itinerary.currency} {itinerary.totalPrice}
-                          </p>
-                          {!shouldShowSeparateBookingLinks && firstLeg ? (
-                            <a
-                              className="mt-3 inline-flex h-10 items-center justify-center rounded-md bg-cyan-100 px-4 text-sm font-bold text-[#07111f] hover:bg-white"
-                              href={primaryBookingLink}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              View booking
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="grid gap-2 border-t border-white/10 bg-white/[0.04] p-4">
-                        {itinerary.legs.map((leg) => (
-                          <div
-                            className={`grid gap-3 rounded-md border border-white/10 bg-[#050914]/62 p-3 text-sm ${
-                              shouldShowSeparateBookingLinks
-                                ? "sm:grid-cols-[1.1fr_0.8fr_0.8fr_auto]"
-                                : "sm:grid-cols-[1.1fr_0.8fr_0.8fr]"
-                            }`}
-                            key={`${itinerary.id}-${leg.direction}-${leg.airline}`}
-                          >
-                            <div>
-                              <p className="text-xs font-semibold uppercase text-slate-500">
-                                {leg.direction === "OUTBOUND" ? "Outbound" : "Return"}
-                              </p>
-                              <p className="mt-1 font-semibold">
-                                {leg.originAirport} to {leg.destinationAirport}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold uppercase text-slate-500">Airline</p>
-                              <p className="mt-1 font-semibold">{leg.airline}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold uppercase text-slate-500">Trip</p>
-                              <p className="mt-1 font-semibold">
-                                {formatShortDate(leg.departDate)} · {formatDuration(leg.durationMinutes ?? null)} ·{" "}
-                                {formatStops(leg.stops)}
-                              </p>
-                            </div>
-                            {shouldShowSeparateBookingLinks ? (
-                              <a
-                                className="inline-flex h-10 items-center justify-center rounded-md border border-cyan-100/30 px-3 font-semibold text-cyan-100 hover:bg-cyan-100 hover:text-[#07111f]"
-                                href={leg.bookingLink}
-                                rel="noreferrer"
-                                target="_blank"
-                              >
-                                View leg
-                              </a>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-
-                      {itinerary.warning ? (
-                        <p className="border-t border-amber-200/20 bg-amber-200/10 px-4 py-3 text-sm text-amber-100">
-                          {itinerary.warning}
-                        </p>
-                      ) : null}
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
         </div>
       </section>
     </main>

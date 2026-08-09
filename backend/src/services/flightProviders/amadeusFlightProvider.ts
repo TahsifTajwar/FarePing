@@ -200,7 +200,12 @@ function buildSplitOneWayItineraries(
         savingsComparedToRoundTrip: null,
         summary: "Separate one-way fares found through Amadeus.",
         totalDurationMinutes: outbound.totalDurationMinutes + returnTrip.totalDurationMinutes,
-        carryOnIncluded: outbound.carryOnIncluded && returnTrip.carryOnIncluded,
+        carryOnIncluded:
+          outbound.carryOnIncluded === false || returnTrip.carryOnIncluded === false
+            ? false
+            : outbound.carryOnIncluded === true && returnTrip.carryOnIncluded === true
+              ? true
+              : null,
         legs: [
           {
             ...outboundLeg,
@@ -235,6 +240,8 @@ function mapItineraryToLeg(
     destinationAirport: lastSegment?.arrival.iataCode ?? "",
     price,
     departDate: firstSegment?.departure.at.slice(0, 10) ?? "",
+    departTime: firstSegment?.departure.at.slice(11, 16) || undefined,
+    arrivalTime: lastSegment?.arrival.at.slice(11, 16) || undefined,
     durationMinutes: parseDurationMinutes(itinerary.duration),
     stops: countStops(itinerary.segments),
     bookingLink: "https://www.google.com/travel/flights"

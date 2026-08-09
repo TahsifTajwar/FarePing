@@ -126,11 +126,29 @@ const tripAssistantResponseSchema = {
 };
 
 export async function getTripAssistantReply(input: TripAssistantInput): Promise<TripAssistantResult> {
+  const tripDraft = normalizeTripDraft(input.currentTripDraft);
+  const quickSideReply = getQuickSideMessageReply(input.message);
+
+  if (quickSideReply) {
+    const missingFields = getMissingFields(tripDraft, [], []);
+
+    return {
+      reply: quickSideReply,
+      tripDraft,
+      missingFields,
+      readyToSearch: missingFields.filter((field) => field !== "phone").length === 0,
+      readyToSaveAlert: missingFields.length === 0,
+      airportOptions: {
+        origins: [],
+        destinations: []
+      }
+    };
+  }
+
   if (!env.OPENAI_API_KEY) {
     throw new Error("OpenAI is not configured.");
   }
 
-  const tripDraft = normalizeTripDraft(input.currentTripDraft);
   const lunaResult = await askLuna({
     message: input.message,
     currentTripDraft: tripDraft,
@@ -145,7 +163,7 @@ export async function getTripAssistantReply(input: TripAssistantInput): Promise<
     destinationAirports: normalizeAirportCodes(lunaResult.tripDraft.destinationAirports)
   };
   const missingFields = getMissingFields(normalizedTripDraft, originOptions, destinationOptions);
-  const reply = getRuleBasedReply(lunaResult.reply, missingFields);
+  const reply = getRuleBasedReply(lunaResult.reply, missingFields, input.message);
 
   return {
     reply,
@@ -160,13 +178,54 @@ export async function getTripAssistantReply(input: TripAssistantInput): Promise<
   };
 }
 
-function getRuleBasedReply(lunaReply: string, missingFields: string[]) {
+function getRuleBasedReply(lunaReply: string, missingFields: string[], latestUserMessage: string) {
   const missingSearchFields = missingFields.filter((field) => field !== "phone");
+
+  if (isClarificationQuestion(latestUserMessage)) {
+    return lunaReply;
+  }
+
+  if (isSideMessage(latestUserMessage)) {
+    return lunaReply;
+  }
 
   if (missingSearchFields.length === 0) {
     return lunaReply;
   }
 
+  return getNextFlightQuestion(missingSearchFields) ?? lunaReply;
+}
+
+function isClarificationQuestion(message: string) {
+  const normalizedMessage = message.trim().toLowerCase();
+
+  return (
+    /\b(why|where|what|which|how)\b/.test(normalizedMessage) &&
+    /\b(airport|airports|code|dfw|dal|dallas|fort worth|option|options|missing|show|include)\b/.test(
+      normalizedMessage
+    )
+  );
+}
+
+function getQuickSideMessageReply(message: string) {
+  const normalizedMessage = normalizeChatMessage(message);
+
+  if (isShortGreeting(normalizedMessage)) {
+    return "Hi, I'm here. Share any trip detail to start.";
+  }
+
+  if (isEmotionMessage(normalizedMessage)) {
+    return "I'm sorry you're feeling that. We can keep this easy. Share any flight detail whenever you're ready.";
+  }
+
+  if (isFlightPauseMessage(normalizedMessage)) {
+    return "That's okay. We can pause the flight setup.";
+  }
+
+  return null;
+}
+
+function getNextFlightQuestion(missingSearchFields: string[]) {
   if (missingSearchFields.includes("tripType")) {
     return "Is this a round trip or a one-way trip?";
   }
@@ -181,6 +240,10 @@ function getRuleBasedReply(lunaReply: string, missingFields: string[]) {
 
   if (missingSearchFields.includes("earliestDepartDate")) {
     return "What is the earliest date you can depart?";
+  }
+
+  if (missingSearchFields.includes("latestDepartDate")) {
+    return "Latest departure cannot be before earliest departure. What is the latest date you can depart?";
   }
 
   if (missingSearchFields.includes("latestReturnDate")) {
@@ -203,7 +266,48 @@ function getRuleBasedReply(lunaReply: string, missingFields: string[]) {
     return "What is your maximum stay days? You can say skip if flexible.";
   }
 
-  return lunaReply;
+  return null;
+}
+
+function isSideMessage(message: string) {
+  const normalizedMessage = normalizeChatMessage(message);
+
+  return (
+    isShortGreeting(normalizedMessage) ||
+    isEmotionMessage(normalizedMessage) ||
+    isFlightPauseMessage(normalizedMessage)
+  );
+}
+
+function isShortGreeting(normalizedMessage: string) {
+  return /^(hi|hello|hey|yo|sup|good morning|good afternoon|good evening)$/.test(normalizedMessage);
+}
+
+function isEmotionMessage(normalizedMessage: string) {
+  return (
+    !hasFlightSetupSignal(normalizedMessage) &&
+    /\b(sad|upset|stressed|stress|frustrated|angry|mad|tired|confused|overwhelmed)\b/.test(
+      normalizedMessage
+    )
+  );
+}
+
+function isFlightPauseMessage(normalizedMessage: string) {
+  return /\b(dont|do not|don't|no longer|not)\b.*\b(flight|flights|trip|travel)\b/.test(normalizedMessage);
+}
+
+function hasFlightSetupSignal(normalizedMessage: string) {
+  return /\b(round trip|one way|airport|airports|depart|departure|return|budget|flight|flights|trip|travel|to|from|leave|go)\b/.test(
+    normalizedMessage
+  );
+}
+
+function normalizeChatMessage(message: string) {
+  return message
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\s']/g, "")
+    .replace(/\s+/g, " ");
 }
 
 function getMissingFields(
@@ -238,13 +342,41 @@ function getMissingFields(
       missingFields.push("latestReturnDate");
     }
 
-    if (!tripDraft.minTripDays || !tripDraft.minTripDaysProvided) {
+    const availableTripDays =
+      tripDraft.earliestDepartDate && tripDraft.latestReturnDate
+        ? getDayDifference(tripDraft.earliestDepartDate, tripDraft.latestReturnDate)
+        : null;
+
+    if (availableTripDays !== null && availableTripDays <= 0) {
+      missingFields.push("latestReturnDate");
+    }
+
+    if (
+      !tripDraft.minTripDays ||
+      !tripDraft.minTripDaysProvided ||
+      (availableTripDays !== null && tripDraft.minTripDays > availableTripDays)
+    ) {
       missingFields.push("minTripDays");
     }
 
-    if ((!tripDraft.maxTripDays || !tripDraft.maxTripDaysProvided) && !tripDraft.maxTripDaysFlexible) {
+    if (
+      ((!tripDraft.maxTripDays || !tripDraft.maxTripDaysProvided) && !tripDraft.maxTripDaysFlexible) ||
+      (tripDraft.maxTripDays &&
+        tripDraft.minTripDays &&
+        tripDraft.maxTripDays < tripDraft.minTripDays) ||
+      (availableTripDays !== null && tripDraft.maxTripDays && tripDraft.maxTripDays > availableTripDays)
+    ) {
       missingFields.push("maxTripDays");
     }
+  }
+
+  if (
+    tripDraft.tripType === "ONE_WAY" &&
+    tripDraft.earliestDepartDate &&
+    tripDraft.latestDepartDate &&
+    getDayDifference(tripDraft.earliestDepartDate, tripDraft.latestDepartDate) < 0
+  ) {
+    missingFields.push("latestDepartDate");
   }
 
   if (!tripDraft.phone) {
@@ -252,6 +384,14 @@ function getMissingFields(
   }
 
   return missingFields;
+}
+
+function getDayDifference(startDate: string, endDate: string) {
+  const start = Date.parse(`${startDate}T00:00:00.000Z`);
+  const end = Date.parse(`${endDate}T00:00:00.000Z`);
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+
+  return Math.round((end - start) / millisecondsPerDay);
 }
 
 function normalizeTripDraft(draft?: Partial<TripDraft>): TripDraft {
@@ -316,10 +456,15 @@ function buildSystemPrompt() {
   const today = new Date().toISOString().slice(0, 10);
 
   return [
-    "You are FarePing's trip setup assistant.",
+    "Your name is Luna. You are FarePing's trip setup assistant.",
     `Today's date is ${today}.`,
     "Your job is to turn casual user messages into a clean flight search draft and one short next reply.",
+    "If the user asks who they are talking to, say your name is Luna.",
     "Stay focused on flight search setup, current flight searches, and flight alert setup.",
+    "If the user asks why an airport option is missing, where an airport is, or what an airport code means, answer that question directly before asking for more trip details.",
+    "If the user names a smaller town, college town, neighborhood, landmark, or place without a major commercial airport, use travel geography knowledge to include likely nearby commercial airport cities or IATA codes in airportQueries.",
+    "For ambiguous places or nearby-airport guesses, do not put guessed codes directly in tripDraft. Put them in airportQueries so the user can confirm the airport choices.",
+    "When nearby airport options are being suggested, mention that they are nearby airport choices the user can confirm or remove.",
     "If the user talks about an unrelated topic, answer kindly in one short sentence and invite them back to the trip setup.",
     "If the user shares a normal emotion like sadness or frustration, acknowledge it briefly, but do not become a general therapist or general chatbot.",
     "Do not book flights and do not claim prices are final.",

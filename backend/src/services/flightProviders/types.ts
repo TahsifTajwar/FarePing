@@ -20,6 +20,8 @@ export type ItineraryLeg = {
   destinationAirport: string;
   price: number;
   departDate: string;
+  departTime?: string;
+  arrivalTime?: string;
   durationMinutes?: number;
   stops: number;
   bookingLink: string;
@@ -33,7 +35,7 @@ export type UnscoredItinerary = {
   savingsComparedToRoundTrip: number | null;
   summary: string;
   totalDurationMinutes: number;
-  carryOnIncluded: boolean;
+  carryOnIncluded: boolean | null;
   legs: ItineraryLeg[];
 };
 
@@ -46,6 +48,31 @@ export type Itinerary = UnscoredItinerary & {
 export type FlightProviderResult = {
   provider: string;
   itineraries: UnscoredItinerary[];
+  diagnostics?: FlightProviderDiagnostics;
+};
+
+export type FlightProviderDiagnostics = {
+  datePairsSearched?: {
+    departureDate: string;
+    returnDate?: string;
+  }[];
+  apiRequestsMade?: number;
+  rawItinerariesFound?: number;
+  rawItinerariesByType?: Partial<Record<ItineraryType, number>>;
+  providerErrors?: string[];
+  serpApiRoundTripDetails?: {
+    outboundOptionsFound: number;
+    outboundOptionsWithReturnToken: number;
+    outboundOptionsFollowed: number;
+    returnTokenSearchesMade: number;
+    returnOptionsFound: number;
+    roundTripItinerariesBuilt: number;
+  };
+  serpApiSplitOneWayDetails?: {
+    outboundOptionsUsed: number;
+    returnOptionsUsed: number;
+    splitItinerariesBuilt: number;
+  };
 };
 
 export type FlightProvider = {
