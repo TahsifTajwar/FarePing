@@ -19,11 +19,11 @@ export default function LandingPage() {
             <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-[#2563eb]">
               <Plane size={22} aria-hidden="true" />
             </span>
-            <span className="text-xl font-bold">FarePing</span>
+            <span className="text-xl font-semibold">FarePing</span>
           </Link>
 
           <Link
-            className="inline-flex h-10 items-center justify-center rounded-md bg-white px-4 text-sm font-semibold text-[#07111f] hover:bg-cyan-100"
+            className="inline-flex h-10 items-center justify-center rounded-md bg-white px-4 text-sm font-medium text-[#07111f] hover:bg-cyan-100"
             href="/search"
           >
             Open app
@@ -34,10 +34,10 @@ export default function LandingPage() {
           <div className="max-w-2xl">
             <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-cyan-200/25 bg-cyan-200/10 px-4 py-2 text-sm font-semibold text-cyan-100">
               <Sparkles size={16} aria-hidden="true" />
-              AI flight alerts
+              Flight alert assistant
             </p>
 
-            <h1 className="text-5xl font-bold leading-[1.05] tracking-normal sm:text-6xl">
+            <h1 className="text-5xl font-semibold leading-[1.05] tracking-normal sm:text-6xl">
               Tell FarePing where you want to go.
             </h1>
 
@@ -48,14 +48,14 @@ export default function LandingPage() {
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#3b6df6] px-5 font-semibold text-white shadow-[0_18px_55px_rgba(37,99,235,0.32)] hover:bg-[#315de0]"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#3b6df6] px-5 font-medium text-white shadow-[0_18px_55px_rgba(37,99,235,0.32)] hover:bg-[#315de0]"
                 href="/search"
               >
                 Start a search
                 <ArrowRight size={18} aria-hidden="true" />
               </Link>
               <Link
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-white/20 bg-white/8 px-5 font-semibold text-white hover:bg-white/12"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-white/20 bg-white/8 px-5 font-medium text-white hover:bg-white/12"
                 href="/alerts"
               >
                 View alerts

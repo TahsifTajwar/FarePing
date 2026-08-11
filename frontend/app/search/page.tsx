@@ -1095,14 +1095,14 @@ export default function Home() {
                   <Plane size={22} aria-hidden="true" />
                 </Link>
                 <div>
-                  <p className="text-sm font-semibold uppercase tracking-wide text-cyan-100">
+                  <p className="text-sm font-medium text-cyan-100">
                     Flight deal watcher
                   </p>
-                  <h1 className="text-3xl font-bold tracking-normal">FarePing</h1>
+                  <h1 className="text-3xl font-semibold tracking-normal">FarePing</h1>
                 </div>
               </div>
             </div>
-            <nav className="flex flex-wrap items-center gap-2 rounded-full border border-white/10 bg-white/8 p-1 text-sm font-semibold backdrop-blur-md">
+            <nav className="flex flex-wrap items-center gap-2 rounded-full border border-white/10 bg-white/8 p-1 text-sm font-medium backdrop-blur-md">
               <Link className="rounded-full px-4 py-2 text-slate-200 hover:bg-white/10" href="/">
                 Home
               </Link>
@@ -1127,16 +1127,16 @@ export default function Home() {
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-cyan-100">
+                  <p className="mb-2 inline-flex items-center gap-2 text-sm font-medium text-cyan-100">
                     <Sparkles size={16} aria-hidden="true" />
                     Luna
                   </p>
-                  <h2 className="text-4xl font-bold leading-tight tracking-normal sm:text-5xl">
+                  <h2 className="text-4xl font-semibold leading-tight tracking-normal sm:text-5xl">
                     Start with any detail.
                   </h2>
                 </div>
                 <button
-                  className="inline-flex h-10 shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-white/18 bg-white/8 px-4 text-sm font-semibold text-white backdrop-blur-md hover:bg-white/12"
+                  className="inline-flex h-10 shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-white/18 bg-white/8 px-4 text-sm font-medium text-white backdrop-blur-md hover:bg-white/12"
                   onClick={() => setShowManualForm((currentValue) => !currentValue)}
                   type="button"
                 >
@@ -1229,7 +1229,7 @@ export default function Home() {
                         value={chatInput}
                       />
                     <button
-                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#3b6df6] px-5 font-semibold text-white transition hover:bg-[#315de0] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-500"
+                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#3b6df6] px-5 font-medium text-white transition hover:bg-[#315de0] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-500"
                       disabled={chatLoading}
                       type="submit"
                     >
@@ -1248,7 +1248,7 @@ export default function Home() {
                 {chatReadyToSearch && !pendingAirportSelection ? (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <button
-                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-cyan-100 px-4 font-semibold text-[#07111f] transition hover:bg-white active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white"
+                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-cyan-100 px-4 font-medium text-[#07111f] transition hover:bg-white active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white"
                       disabled={loading}
                       onClick={handleChatSearch}
                       type="button"
@@ -1257,7 +1257,7 @@ export default function Home() {
                       {loading ? "Searching..." : "Find best flights now"}
                     </button>
                     <button
-                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-cyan-100 px-4 font-semibold text-cyan-100 transition hover:bg-cyan-100 hover:text-[#07111f] active:scale-[0.99] disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
+                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-cyan-100 px-4 font-medium text-cyan-100 transition hover:bg-cyan-100 hover:text-[#07111f] active:scale-[0.99] disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
                       disabled={saving || results.length === 0}
                       onClick={handleChatSaveAlert}
                       type="button"
@@ -1267,7 +1267,7 @@ export default function Home() {
                     </button>
                     {hasCurrentResults ? (
                       <Link
-                        className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-white/15 bg-white/[0.06] px-4 font-semibold text-slate-100 transition hover:bg-white/10 sm:col-span-2"
+                        className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-white/15 bg-white/[0.06] px-4 font-medium text-slate-100 transition hover:bg-white/10 sm:col-span-2"
                         href="/results/current"
                       >
                         View current results
@@ -1499,7 +1499,7 @@ export default function Home() {
             <aside className="sticky top-6 rounded-lg border border-cyan-100/15 bg-[#07111f]/78 p-4 shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-cyan-100">Current trip</p>
+                  <p className="text-sm font-medium text-cyan-100">Current trip</p>
                   <p className="mt-1 text-xs text-slate-400">Updates as Luna learns.</p>
                 </div>
                 <span className="rounded-full border border-white/12 bg-white/8 px-3 py-1 text-xs font-semibold text-slate-200">

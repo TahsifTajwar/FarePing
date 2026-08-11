@@ -12,8 +12,18 @@ import {
   type CurrentResultsSession
 } from "../../components/currentFlightTypes";
 
+type AirportMatch = {
+  iataCode: string;
+  name: string;
+  municipality: string;
+  country: string;
+  region: string;
+  type: string;
+};
+
 export default function CurrentResultsPage() {
   const [currentResults, setCurrentResults] = useState<CurrentResultsSession | null>(null);
+  const [airportNamesByCode, setAirportNamesByCode] = useState<Record<string, string>>({});
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
@@ -32,10 +42,46 @@ export default function CurrentResultsPage() {
       const parsedResults = JSON.parse(storedResults) as CurrentResultsSession;
       setCurrentResults(parsedResults);
       setPhone(parsedResults.requestBody.contactPhone ?? "");
+      void fetchAirportNames(parsedResults);
     } catch {
       setError("Could not read the current search results. Start a new search again.");
     }
   }, []);
+
+  async function fetchAirportNames(resultsSession: CurrentResultsSession) {
+    const airportCodes = [
+      ...new Set(
+        resultsSession.results.flatMap((itinerary) =>
+          itinerary.legs.flatMap((leg) => [leg.originAirport, leg.destinationAirport])
+        )
+      )
+    ];
+
+    const airportEntries = await Promise.all(
+      airportCodes.map(async (airportCode) => {
+        try {
+          const query = new URLSearchParams({
+            q: airportCode,
+            limit: "1"
+          });
+          const response = await fetch(`http://localhost:4000/api/airports/resolve?${query}`);
+
+          if (!response.ok) {
+            return [airportCode, airportCode] as const;
+          }
+
+          const data = (await response.json()) as { airports: AirportMatch[] };
+          const exactMatch = data.airports.find((airport) => airport.iataCode === airportCode);
+
+          return [airportCode, exactMatch?.municipality || exactMatch?.name || airportCode] as const;
+        } catch {
+          return [airportCode, airportCode] as const;
+        }
+      })
+    );
+
+    setAirportNamesByCode(Object.fromEntries(airportEntries));
+  }
 
   async function readJsonResponse<T>(response: Response, fallbackMessage: string) {
     const responseText = await response.text();
@@ -117,8 +163,28 @@ export default function CurrentResultsPage() {
     }
   }
 
+  function getAirportName(airportCode: string) {
+    return airportNamesByCode[airportCode] ?? airportCode;
+  }
+
+  function formatAirportNames(airportCodes: string[]) {
+    const airportNames = [...new Set(airportCodes.map(getAirportName))];
+
+    if (airportNames.length === 1) {
+      return airportNames[0];
+    }
+
+    if (airportNames.length <= 2) {
+      return airportNames.join(" or ");
+    }
+
+    return `${airportNames[0]} area`;
+  }
+
   const routeSummary = currentResults
-    ? `${currentResults.requestBody.originAirports.join(", ")} to ${currentResults.requestBody.destinationAirports.join(", ")}`
+    ? `${formatAirportNames(currentResults.requestBody.originAirports)} to ${formatAirportNames(
+        currentResults.requestBody.destinationAirports
+      )}`
     : "Current search";
 
   return (
@@ -140,11 +206,11 @@ export default function CurrentResultsPage() {
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-[#2563eb]">
                   <Plane size={22} aria-hidden="true" />
                 </span>
-                <span className="text-xl font-bold">FarePing</span>
+                <span className="text-xl font-semibold">FarePing</span>
               </Link>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+            <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
               <Link
                 className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-slate-200 hover:bg-white/10"
                 href="/search"
@@ -162,8 +228,8 @@ export default function CurrentResultsPage() {
 
           <header className="grid gap-5 rounded-lg border border-white/15 bg-[#07111f]/88 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.36)] backdrop-blur-xl lg:grid-cols-[1fr_360px] lg:items-end">
             <div>
-              <p className="text-sm font-semibold text-cyan-100">Current search results</p>
-              <h1 className="mt-2 text-4xl font-bold tracking-normal sm:text-5xl">
+              <p className="text-sm font-medium text-cyan-100">Current search results</p>
+              <h1 className="mt-2 text-4xl font-semibold tracking-normal sm:text-5xl">
                 {routeSummary}
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
@@ -172,7 +238,7 @@ export default function CurrentResultsPage() {
             </div>
 
             <div className="grid gap-3 rounded-md border border-white/10 bg-white/[0.06] p-3">
-              <label className="grid gap-2 text-sm font-semibold">
+              <label className="grid gap-2 text-sm font-medium">
                 Text alerts number
                 <input
                   className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
@@ -182,7 +248,7 @@ export default function CurrentResultsPage() {
                 />
               </label>
               <button
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-cyan-100 px-4 text-sm font-bold text-[#07111f] transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-cyan-100 px-4 text-sm font-medium text-[#07111f] transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white"
                 disabled={saving || !currentResults}
                 onClick={handleSaveAlert}
                 type="button"
@@ -218,8 +284,8 @@ export default function CurrentResultsPage() {
             <section className="grid gap-4 pb-10">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-cyan-100">Ranked options</p>
-                  <h2 className="text-3xl font-bold tracking-normal">
+                  <p className="text-sm font-medium text-cyan-100">Ranked options</p>
+                  <h2 className="text-3xl font-semibold tracking-normal">
                     Best flights from this search
                   </h2>
                 </div>
@@ -229,7 +295,10 @@ export default function CurrentResultsPage() {
                 </p>
               </div>
 
-              <CurrentResultsList results={currentResults.results} />
+              <CurrentResultsList
+                airportNamesByCode={airportNamesByCode}
+                results={currentResults.results}
+              />
 
               {currentResults.diagnostics ? (
                 <section className="rounded-lg border border-cyan-100/15 bg-[#07111f]/88 p-4 shadow-[0_24px_70px_rgba(0,0,0,0.30)] backdrop-blur-xl">

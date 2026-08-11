@@ -570,20 +570,20 @@ export function TrackedTripsPanel() {
                   <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-start">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-bold text-[#07111f]">
+                        <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-medium text-[#07111f]">
                           {savedSearch.tripType === "ROUND_TRIP" ? "Round trip" : "One way"}
                         </span>
                         {!savedSearch.active ? (
-                          <span className="rounded-full border border-amber-200/30 bg-amber-200/10 px-3 py-1 text-xs font-semibold text-amber-100">
+                          <span className="rounded-full border border-amber-200/30 bg-amber-200/10 px-3 py-1 text-xs font-medium text-amber-100">
                             Paused
                           </span>
                         ) : (
-                          <span className="rounded-full border border-emerald-200/25 bg-emerald-200/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+                          <span className="rounded-full border border-emerald-200/25 bg-emerald-200/10 px-3 py-1 text-xs font-medium text-emerald-100">
                             Watching
                           </span>
                         )}
                       </div>
-                      <h2 className="mt-4 text-3xl font-bold tracking-normal">
+                      <h2 className="mt-4 text-3xl font-semibold tracking-normal">
                         {formatRouteTitle(savedSearch)}
                       </h2>
                       <p className="mt-2 text-sm font-medium text-slate-400">
@@ -594,7 +594,7 @@ export function TrackedTripsPanel() {
 
                     <div className="grid gap-3 lg:min-w-64">
                       <Link
-                        className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-cyan-100 px-5 text-sm font-bold text-[#07111f] transition hover:bg-white"
+                        className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-cyan-100 px-5 text-sm font-medium text-[#07111f] transition hover:bg-white"
                         href={`/alerts/${savedSearch.id}`}
                       >
                         See flight options
@@ -608,39 +608,39 @@ export function TrackedTripsPanel() {
 
                   <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
                     <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                      <p className="text-xs font-semibold uppercase text-slate-500">Travel window</p>
-                      <p className="mt-2 font-semibold">{formatDateRange(savedSearch)}</p>
+                      <p className="text-xs font-medium text-slate-500">Travel window</p>
+                      <p className="mt-2 font-medium">{formatDateRange(savedSearch)}</p>
                     </div>
                     <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                      <p className="text-xs font-semibold uppercase text-slate-500">Stay</p>
-                      <p className="mt-2 font-semibold">{formatStay(savedSearch)}</p>
+                      <p className="text-xs font-medium text-slate-500">Stay</p>
+                      <p className="mt-2 font-medium">{formatStay(savedSearch)}</p>
                     </div>
                     <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                      <p className="text-xs font-semibold uppercase text-slate-500">Budget</p>
-                      <p className="mt-2 font-semibold">
+                      <p className="text-xs font-medium text-slate-500">Budget</p>
+                      <p className="mt-2 font-medium">
                         Up to ${savedSearch.maxPrice}
                       </p>
                     </div>
                     <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                      <p className="text-xs font-semibold uppercase text-slate-500">Best found</p>
-                      <p className="mt-2 font-semibold text-cyan-100">
+                      <p className="text-xs font-medium text-slate-500">Best found</p>
+                      <p className="mt-2 font-medium text-cyan-100">
                         {formatMoney(latestBatch?.bestPrice ?? null)}
                       </p>
                     </div>
                     <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                      <p className="text-xs font-semibold uppercase text-slate-500">Last checked</p>
-                      <p className="mt-2 font-semibold">
+                      <p className="text-xs font-medium text-slate-500">Last checked</p>
+                      <p className="mt-2 font-medium">
                         {latestBatch ? formatDisplayDate(latestBatch.checkedAt) : "Not checked yet"}
                       </p>
                     </div>
                   </div>
 
                   <div className="grid gap-2 border-t border-white/10 pt-4 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center">
-                    <p className="text-sm font-semibold text-slate-300 sm:col-span-1">
+                    <p className="text-sm font-medium text-slate-300 sm:col-span-1">
                       {formatPhoneStatus(savedSearch.contactPhone)}
                     </p>
                     <button
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-cyan-100/25 px-4 text-sm font-bold text-cyan-100 transition hover:bg-cyan-100 hover:text-[#07111f]"
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-cyan-100/25 px-4 text-sm font-medium text-cyan-100 transition hover:bg-cyan-100 hover:text-[#07111f]"
                       onClick={() =>
                         editingSearchId === savedSearch.id
                           ? cancelEditingSavedSearch()
@@ -656,7 +656,7 @@ export function TrackedTripsPanel() {
                       {editingSearchId === savedSearch.id ? "Close edit" : "Edit"}
                     </button>
                     <button
-                      className="inline-flex h-11 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-bold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
+                      className="inline-flex h-11 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-medium text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
                       disabled={updatingSearchId === savedSearch.id}
                       onClick={() => handleToggleSavedSearch(savedSearch)}
                       type="button"
@@ -668,7 +668,7 @@ export function TrackedTripsPanel() {
                           : "Resume"}
                     </button>
                     <button
-                      className="inline-flex h-11 items-center justify-center rounded-md border border-red-200/35 px-3 text-sm font-bold text-red-100 transition hover:bg-red-200 hover:text-red-950 disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
+                      className="inline-flex h-11 items-center justify-center rounded-md border border-red-200/35 px-3 text-sm font-medium text-red-100 transition hover:bg-red-200 hover:text-red-950 disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
                       disabled={deletingSearchId === savedSearch.id}
                       onClick={() => handleDeleteSavedSearch(savedSearch)}
                       type="button"
