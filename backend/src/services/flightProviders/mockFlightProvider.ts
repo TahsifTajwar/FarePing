@@ -1,6 +1,8 @@
 import {
   type FlightProvider,
   type FlightSearchInput,
+  type ItineraryLeg,
+  type ItinerarySegment,
   type UnscoredItinerary
 } from "./types.js";
 
@@ -184,7 +186,10 @@ function buildLeg(
   departDate: string,
   durationMinutes: number,
   stops: number
-) {
+): ItineraryLeg {
+  const departTime = direction === "OUTBOUND" ? "08:00" : "17:00";
+  const arrivalTime = direction === "OUTBOUND" ? "12:30" : "21:30";
+
   return {
     direction,
     airline,
@@ -192,12 +197,102 @@ function buildLeg(
     destinationAirport,
     price,
     departDate,
-    departTime: direction === "OUTBOUND" ? "08:00" : "17:00",
-    arrivalTime: direction === "OUTBOUND" ? "12:30" : "21:30",
+    departTime,
+    arrivalTime,
     durationMinutes,
     stops,
-    bookingLink: `https://example.com/book/${airline.toLowerCase()}`
+    bookingLink: `https://example.com/book/${airline.toLowerCase()}`,
+    segments: buildMockSegments({
+      direction,
+      airline,
+      originAirport,
+      destinationAirport,
+      departDate,
+      departTime,
+      arrivalTime,
+      durationMinutes,
+      stops
+    })
   };
+}
+
+function buildMockSegments({
+  direction,
+  airline,
+  originAirport,
+  destinationAirport,
+  departDate,
+  departTime,
+  arrivalTime,
+  durationMinutes,
+  stops
+}: {
+  direction: ItineraryLeg["direction"];
+  airline: string;
+  originAirport: string;
+  destinationAirport: string;
+  departDate: string;
+  departTime: string;
+  arrivalTime: string;
+  durationMinutes: number;
+  stops: number;
+}): ItinerarySegment[] {
+  if (stops === 0) {
+    return [
+      {
+        segmentOrder: 1,
+        airline,
+        flightNumber: getMockFlightNumber(airline, direction, 1),
+        originAirport,
+        destinationAirport,
+        departDate,
+        departTime,
+        arrivalDate: departDate,
+        arrivalTime,
+        durationMinutes
+      }
+    ];
+  }
+
+  const layoverAirport = direction === "OUTBOUND" ? "ATL" : "KEF";
+  const layoverMinutes = 90;
+  const firstFlightMinutes = Math.max(90, Math.floor((durationMinutes - layoverMinutes) / 2));
+  const secondFlightMinutes = Math.max(90, durationMinutes - layoverMinutes - firstFlightMinutes);
+
+  return [
+    {
+      segmentOrder: 1,
+      airline,
+      flightNumber: getMockFlightNumber(airline, direction, 1),
+      originAirport,
+      destinationAirport: layoverAirport,
+      departDate,
+      departTime,
+      arrivalDate: departDate,
+      arrivalTime: "10:15",
+      durationMinutes: firstFlightMinutes,
+      layoverAfterMinutes: layoverMinutes
+    },
+    {
+      segmentOrder: 2,
+      airline,
+      flightNumber: getMockFlightNumber(airline, direction, 2),
+      originAirport: layoverAirport,
+      destinationAirport,
+      departDate,
+      departTime: "11:45",
+      arrivalDate: departDate,
+      arrivalTime,
+      durationMinutes: secondFlightMinutes
+    }
+  ];
+}
+
+function getMockFlightNumber(airline: string, direction: ItineraryLeg["direction"], segmentOrder: number) {
+  const airlineCode = airline.slice(0, 2).toUpperCase();
+  const directionNumber = direction === "OUTBOUND" ? 10 : 20;
+
+  return `${airlineCode} ${directionNumber + segmentOrder}`;
 }
 
 function getMockReturnDate(search: FlightSearchInput) {

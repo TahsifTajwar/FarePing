@@ -130,6 +130,49 @@ const savedSearchDetailsSchema = z.object({
   maxStops: z.coerce.number().int().min(0).nullable().optional()
 });
 
+const resultBatchInclude = {
+  itineraries: {
+    include: {
+      legs: {
+        include: {
+          segments: {
+            orderBy: {
+              segmentOrder: "asc" as const
+            }
+          }
+        }
+      }
+    },
+    orderBy: {
+      dealScore: "desc" as const
+    }
+  }
+};
+
+const savedSearchInclude = {
+  resultBatches: {
+    include: resultBatchInclude,
+    orderBy: {
+      checkedAt: "desc" as const
+    },
+    take: 1
+  }
+};
+
+const currentResultSegmentSchema = z.object({
+  segmentOrder: z.coerce.number().int().positive(),
+  airline: z.string().min(1),
+  flightNumber: z.string().optional(),
+  originAirport: z.string().min(3),
+  destinationAirport: z.string().min(3),
+  departDate: z.string().date(),
+  departTime: z.string().optional(),
+  arrivalDate: z.string().date().optional(),
+  arrivalTime: z.string().optional(),
+  durationMinutes: z.coerce.number().int().positive().optional(),
+  layoverAfterMinutes: z.coerce.number().int().nonnegative().optional()
+});
+
 const currentResultLegSchema = z.object({
   direction: z.enum(["OUTBOUND", "RETURN"]),
   airline: z.string().min(1),
@@ -141,7 +184,8 @@ const currentResultLegSchema = z.object({
   arrivalTime: z.string().optional(),
   durationMinutes: z.coerce.number().int().positive().optional(),
   stops: z.coerce.number().int().min(0),
-  bookingLink: z.string().url()
+  bookingLink: z.string().url(),
+  segments: z.array(currentResultSegmentSchema).optional()
 });
 
 const currentResultSchema = z.object({
@@ -235,24 +279,7 @@ savedSearchesRouter.get("/", async (req, res) => {
     where: {
       userId
     },
-    include: {
-      resultBatches: {
-        include: {
-          itineraries: {
-            include: {
-              legs: true
-            },
-            orderBy: {
-              dealScore: "desc"
-            }
-          }
-        },
-        orderBy: {
-          checkedAt: "desc"
-        },
-        take: 1
-      }
-    },
+    include: savedSearchInclude,
     orderBy: {
       createdAt: "desc"
     }
@@ -312,24 +339,7 @@ savedSearchesRouter.patch("/:id", async (req, res) => {
     data: {
       active: input.active
     },
-    include: {
-      resultBatches: {
-        include: {
-          itineraries: {
-            include: {
-              legs: true
-            },
-            orderBy: {
-              dealScore: "desc"
-            }
-          }
-        },
-        orderBy: {
-          checkedAt: "desc"
-        },
-        take: 1
-      }
-    }
+    include: savedSearchInclude
   });
 
   res.json({
@@ -404,24 +414,7 @@ savedSearchesRouter.patch("/:id/details", async (req, res) => {
       maxPrice: input.maxPrice,
       maxStops: input.maxStops ?? null
     },
-    include: {
-      resultBatches: {
-        include: {
-          itineraries: {
-            include: {
-              legs: true
-            },
-            orderBy: {
-              dealScore: "desc"
-            }
-          }
-        },
-        orderBy: {
-          checkedAt: "desc"
-        },
-        take: 1
-      }
-    }
+    include: savedSearchInclude
   });
 
   res.json({
@@ -469,6 +462,18 @@ savedSearchesRouter.delete("/:id", async (req, res) => {
     });
     const itineraryIds = itineraries.map((itinerary) => itinerary.id);
 
+    const itineraryLegs = await tx.itineraryLeg.findMany({
+      where: {
+        itineraryResultId: {
+          in: itineraryIds
+        }
+      },
+      select: {
+        id: true
+      }
+    });
+    const itineraryLegIds = itineraryLegs.map((itineraryLeg) => itineraryLeg.id);
+
     await tx.notification.deleteMany({
       where: {
         savedSearchId
@@ -478,6 +483,14 @@ savedSearchesRouter.delete("/:id", async (req, res) => {
     await tx.priceHistory.deleteMany({
       where: {
         savedSearchId
+      }
+    });
+
+    await tx.itinerarySegment.deleteMany({
+      where: {
+        itineraryLegId: {
+          in: itineraryLegIds
+        }
       }
     });
 
@@ -520,24 +533,7 @@ savedSearchesRouter.get("/:id", async (req, res) => {
       id: req.params.id,
       userId
     },
-    include: {
-      resultBatches: {
-        include: {
-          itineraries: {
-            include: {
-              legs: true
-            },
-            orderBy: {
-              dealScore: "desc"
-            }
-          }
-        },
-        orderBy: {
-          checkedAt: "desc"
-        },
-        take: 1
-      }
-    }
+    include: savedSearchInclude
   });
 
   if (!savedSearch) {

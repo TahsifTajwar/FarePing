@@ -103,6 +103,26 @@ model ItineraryLeg {
   stops              Int
   bookingLink        String?
   itineraryResult    ItineraryResult @relation(fields: [itineraryResultId], references: [id])
+  segments           ItinerarySegment[]
+}
+
+model ItinerarySegment {
+  id                  String       @id @default(cuid())
+  itineraryLegId      String
+  segmentOrder        Int
+  airline             String
+  flightNumber        String?
+  originAirport       String
+  destinationAirport  String
+  departDate          DateTime
+  departTime          String?
+  arrivalDate         DateTime?
+  arrivalTime         String?
+  durationMinutes     Int?
+  layoverAfterMinutes Int?
+  itineraryLeg        ItineraryLeg @relation(fields: [itineraryLegId], references: [id])
+
+  @@index([itineraryLegId, segmentOrder])
 }
 
 model PriceHistory {

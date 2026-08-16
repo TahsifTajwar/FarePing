@@ -82,7 +82,15 @@ export async function saveSearchResultBatch(savedSearchId: string, flightResults
     include: {
       itineraries: {
         include: {
-          legs: true
+          legs: {
+            include: {
+              segments: {
+                orderBy: {
+                  segmentOrder: "asc"
+                }
+              }
+            }
+          }
         },
         orderBy: {
           dealScore: "desc"
@@ -137,7 +145,22 @@ function buildItineraryCreateInput(itinerary: Itinerary) {
         arrivalTime: leg.arrivalTime ?? null,
         durationMinutes: leg.durationMinutes,
         stops: leg.stops,
-        bookingLink: leg.bookingLink
+        bookingLink: leg.bookingLink,
+        segments: {
+          create: (leg.segments ?? []).map((segment) => ({
+            segmentOrder: segment.segmentOrder,
+            airline: segment.airline,
+            flightNumber: segment.flightNumber ?? null,
+            originAirport: segment.originAirport,
+            destinationAirport: segment.destinationAirport,
+            departDate: toDate(segment.departDate),
+            departTime: segment.departTime ?? null,
+            arrivalDate: segment.arrivalDate ? toDate(segment.arrivalDate) : null,
+            arrivalTime: segment.arrivalTime ?? null,
+            durationMinutes: segment.durationMinutes,
+            layoverAfterMinutes: segment.layoverAfterMinutes
+          }))
+        }
       }))
     }
   };

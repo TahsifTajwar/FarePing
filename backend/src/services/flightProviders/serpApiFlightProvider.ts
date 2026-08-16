@@ -20,6 +20,7 @@ type SerpApiFlightResult = {
   flights?: SerpApiFlightSegment[];
   layovers?: {
     id?: string;
+    duration?: number;
   }[];
   total_duration?: number;
   price?: number;
@@ -373,12 +374,14 @@ async function buildRoundTripItineraries(
     for (const [returnIndex, returnTrip] of returnOptions.entries()) {
       const outboundLeg = mapSegmentsToLeg(
         outbound.flights ?? [],
+        outbound.layovers ?? [],
         "OUTBOUND",
         Math.round((returnTrip.price ?? outbound.price ?? 0) / 2),
         outboundResponse.search_metadata?.google_flights_url
       );
       const returnLeg = mapSegmentsToLeg(
         returnTrip.flights ?? [],
+        returnTrip.layovers ?? [],
         "RETURN",
         Math.round((returnTrip.price ?? outbound.price ?? 0) / 2),
         returnResponse.search_metadata?.google_flights_url
@@ -429,7 +432,14 @@ function mapFlightResultToItinerary(
 ): UnscoredItinerary {
   const segments = flightResult.flights ?? [];
   const totalPrice = flightResult.price ?? 0;
-  const legs = buildLegs(segments, itineraryType, totalPrice, googleFlightsUrl, returnDate);
+  const legs = buildLegs(
+    segments,
+    flightResult.layovers ?? [],
+    itineraryType,
+    totalPrice,
+    googleFlightsUrl,
+    returnDate
+  );
 
   return {
     id: `serpapi-${itineraryType.toLowerCase()}-${index}-${flightResult.booking_token ?? flightResult.departure_token ?? "offer"}`,
@@ -446,30 +456,45 @@ function mapFlightResultToItinerary(
 
 function buildLegs(
   segments: SerpApiFlightSegment[],
+  layovers: NonNullable<SerpApiFlightResult["layovers"]>,
   itineraryType: ItineraryType,
   totalPrice: number,
   googleFlightsUrl: string | undefined,
   returnDate?: string
 ) {
   if (itineraryType !== "ROUND_TRIP" || !returnDate) {
-    return [mapSegmentsToLeg(segments, "OUTBOUND", totalPrice, googleFlightsUrl)];
+    return [mapSegmentsToLeg(segments, layovers, "OUTBOUND", totalPrice, googleFlightsUrl)];
   }
 
   const outboundSegments = segments.filter((segment) => getDate(segment.departure_airport?.time) < returnDate);
   const returnSegments = segments.filter((segment) => getDate(segment.departure_airport?.time) >= returnDate);
+  const outboundLayoverCount = Math.max(outboundSegments.length - 1, 0);
 
   if (outboundSegments.length === 0 || returnSegments.length === 0) {
-    return [mapSegmentsToLeg(segments, "OUTBOUND", totalPrice, googleFlightsUrl)];
+    return [mapSegmentsToLeg(segments, layovers, "OUTBOUND", totalPrice, googleFlightsUrl)];
   }
 
   return [
-    mapSegmentsToLeg(outboundSegments, "OUTBOUND", Math.round(totalPrice / 2), googleFlightsUrl),
-    mapSegmentsToLeg(returnSegments, "RETURN", Math.round(totalPrice / 2), googleFlightsUrl)
+    mapSegmentsToLeg(
+      outboundSegments,
+      layovers.slice(0, outboundLayoverCount),
+      "OUTBOUND",
+      Math.round(totalPrice / 2),
+      googleFlightsUrl
+    ),
+    mapSegmentsToLeg(
+      returnSegments,
+      layovers.slice(outboundLayoverCount),
+      "RETURN",
+      Math.round(totalPrice / 2),
+      googleFlightsUrl
+    )
   ];
 }
 
 function mapSegmentsToLeg(
   segments: SerpApiFlightSegment[],
+  layovers: NonNullable<SerpApiFlightResult["layovers"]>,
   direction: ItineraryLeg["direction"],
   price: number,
   googleFlightsUrl: string | undefined
@@ -491,7 +516,20 @@ function mapSegmentsToLeg(
     arrivalTime: getTime(lastSegment?.arrival_airport?.time),
     durationMinutes: getLegDurationMinutes(segments),
     stops: Math.max(segments.length - 1, 0),
-    bookingLink: googleFlightsUrl ?? "https://www.google.com/travel/flights"
+    bookingLink: googleFlightsUrl ?? "https://www.google.com/travel/flights",
+    segments: segments.map((segment, index) => ({
+      segmentOrder: index + 1,
+      airline: segment.airline ?? "Unknown airline",
+      flightNumber: segment.flight_number,
+      originAirport: segment.departure_airport?.id ?? "",
+      destinationAirport: segment.arrival_airport?.id ?? "",
+      departDate: getDate(segment.departure_airport?.time),
+      departTime: getTime(segment.departure_airport?.time),
+      arrivalDate: getDate(segment.arrival_airport?.time),
+      arrivalTime: getTime(segment.arrival_airport?.time),
+      durationMinutes: segment.duration,
+      layoverAfterMinutes: layovers[index]?.duration
+    }))
   };
 }
 

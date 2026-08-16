@@ -14,6 +14,20 @@ export type FlightSearchRequest = {
   contactPhone?: string;
 };
 
+export type ItinerarySegment = {
+  segmentOrder: number;
+  airline: string;
+  flightNumber?: string;
+  originAirport: string;
+  destinationAirport: string;
+  departDate: string;
+  departTime?: string;
+  arrivalDate?: string;
+  arrivalTime?: string;
+  durationMinutes?: number;
+  layoverAfterMinutes?: number;
+};
+
 export type ItineraryLeg = {
   direction: "OUTBOUND" | "RETURN";
   airline: string;
@@ -26,6 +40,7 @@ export type ItineraryLeg = {
   durationMinutes?: number;
   stops: number;
   bookingLink: string;
+  segments?: ItinerarySegment[];
 };
 
 export type Itinerary = {

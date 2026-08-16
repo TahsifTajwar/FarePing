@@ -41,6 +41,22 @@ export type SavedItinerary = {
   legs: SavedItineraryLeg[];
 };
 
+export type SavedItinerarySegment = {
+  id: string;
+  itineraryLegId: string;
+  segmentOrder: number;
+  airline: string;
+  flightNumber: string | null;
+  originAirport: string;
+  destinationAirport: string;
+  departDate: string;
+  departTime: string | null;
+  arrivalDate: string | null;
+  arrivalTime: string | null;
+  durationMinutes: number | null;
+  layoverAfterMinutes: number | null;
+};
+
 export type SavedItineraryLeg = {
   id: string;
   direction: "OUTBOUND" | "RETURN";
@@ -54,6 +70,7 @@ export type SavedItineraryLeg = {
   durationMinutes: number | null;
   stops: number;
   bookingLink: string | null;
+  segments?: SavedItinerarySegment[];
 };
 
 export const itineraryLabels = {
