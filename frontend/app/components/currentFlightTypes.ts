@@ -6,6 +6,7 @@ export type FlightSearchRequest = {
   destinationAirports: string[];
   earliestDepartDate: string;
   latestDepartDate?: string;
+  earliestReturnDate?: string;
   latestReturnDate?: string;
   minTripDays?: number;
   maxTripDays?: number;
@@ -55,6 +56,7 @@ export type Itinerary = {
   qualityLabel: string;
   warning: string | null;
   carryOnIncluded: boolean | null;
+  bookingTokens?: string[];
   legs: ItineraryLeg[];
 };
 
@@ -66,6 +68,7 @@ export type SearchDiagnostics = {
       departureDate: string;
       returnDate?: string;
     }[];
+    estimatedApiRequests?: number;
     apiRequestsMade?: number;
     rawItinerariesFound?: number;
     rawItinerariesByType?: Partial<Record<Itinerary["type"], number>>;
@@ -90,13 +93,14 @@ export type SearchDiagnostics = {
     removedByRouteRules?: number;
     removedByStayRules: number;
     removedByStopsRules: number;
+    removedByLayoverRules?: number;
     scoredItineraries: number;
     hiddenByScoreOrPriceRules: number;
     visibleItineraries: number;
     visibleItinerariesByType: Partial<Record<Itinerary["type"], number>>;
     cheapestRawPrice: number | null;
     shortestRawDurationMinutes: number | null;
-    minVisibleDealScore: number;
+    minVisibleDealScore: number | null;
     maxPriceOverBudgetShown: number;
     topScores: {
       id: string;
@@ -220,5 +224,5 @@ export function getAirlineSummary(itinerary: Itinerary) {
 }
 
 export function getTotalStops(itinerary: Itinerary) {
-  return itinerary.legs.reduce((totalStops, leg) => totalStops + leg.stops, 0);
+  return Math.max(...itinerary.legs.map((leg) => leg.stops), 0);
 }

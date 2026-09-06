@@ -33,6 +33,7 @@ const savedSearchSchema = z
     destinationAirports: z.array(z.string().min(3)).min(1),
     earliestDepartDate: z.string().date(),
     latestDepartDate: z.string().date().optional(),
+    earliestReturnDate: z.string().date().optional(),
     latestReturnDate: z.string().date().optional(),
     minTripDays: z.coerce.number().int().positive().optional(),
     maxTripDays: z.coerce.number().int().positive().optional(),
@@ -41,7 +42,6 @@ const savedSearchSchema = z
   })
   .superRefine((search, ctx) => {
     if (
-      search.tripType === "ONE_WAY" &&
       search.latestDepartDate &&
       getDayDifference(search.earliestDepartDate, search.latestDepartDate) < 0
     ) {
@@ -56,11 +56,31 @@ const savedSearchSchema = z
       return;
     }
 
+    if (!search.latestDepartDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "latestDepartDate is required for round-trip saved searches.",
+        path: ["latestDepartDate"]
+      });
+    }
+
     if (!search.latestReturnDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "latestReturnDate is required for round-trip saved searches.",
         path: ["latestReturnDate"]
+      });
+    }
+
+    if (
+      search.earliestReturnDate &&
+      search.latestReturnDate &&
+      getDayDifference(search.earliestReturnDate, search.latestReturnDate) < 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "earliestReturnDate cannot be after latestReturnDate.",
+        path: ["earliestReturnDate"]
       });
     }
 
@@ -72,8 +92,16 @@ const savedSearchSchema = z
       });
     }
 
-    if (!search.latestReturnDate || !search.minTripDays) {
+    if (!search.latestDepartDate || !search.latestReturnDate || !search.minTripDays) {
       return;
+    }
+
+    if (getDayDifference(search.latestDepartDate, search.latestReturnDate) <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "latestDepartDate must be before latestReturnDate.",
+        path: ["latestDepartDate"]
+      });
     }
 
     const availableTripDays = getDayDifference(search.earliestDepartDate, search.latestReturnDate);
@@ -123,6 +151,7 @@ const savedSearchDetailsSchema = z.object({
   destinationAirports: z.array(z.string().min(3)).min(1).optional(),
   earliestDepartDate: z.string().date().optional(),
   latestDepartDate: z.string().date().nullable().optional(),
+  earliestReturnDate: z.string().date().nullable().optional(),
   latestReturnDate: z.string().date().nullable().optional(),
   minTripDays: z.coerce.number().int().positive().nullable().optional(),
   maxTripDays: z.coerce.number().int().positive().nullable().optional(),
@@ -200,6 +229,7 @@ const currentResultSchema = z.object({
   dealScore: z.coerce.number().int().min(0),
   qualityLabel: z.string().min(1),
   warning: z.string().nullable(),
+  bookingTokens: z.array(z.string()).max(2).optional(),
   legs: z.array(currentResultLegSchema).min(1)
 });
 
@@ -246,9 +276,10 @@ savedSearchesRouter.post("/", async (req, res) => {
       originAirports: input.originAirports.map((airport) => airport.toUpperCase()),
       destinationAirports: input.destinationAirports.map((airport) => airport.toUpperCase()),
       earliestDepartDate: toDate(input.earliestDepartDate),
-      latestDepartDate:
-        input.tripType === "ONE_WAY" && input.latestDepartDate
-          ? toDate(input.latestDepartDate)
+      latestDepartDate: input.latestDepartDate ? toDate(input.latestDepartDate) : null,
+      earliestReturnDate:
+        input.tripType === "ROUND_TRIP" && input.earliestReturnDate
+          ? toDate(input.earliestReturnDate)
           : null,
       latestReturnDate: input.latestReturnDate ? toDate(input.latestReturnDate) : null,
       minTripDays: input.minTripDays,
@@ -401,9 +432,10 @@ savedSearchesRouter.patch("/:id/details", async (req, res) => {
       originAirports: input.originAirports.map((airport) => airport.toUpperCase()),
       destinationAirports: input.destinationAirports.map((airport) => airport.toUpperCase()),
       earliestDepartDate: toDate(input.earliestDepartDate),
-      latestDepartDate:
-        input.tripType === "ONE_WAY" && input.latestDepartDate
-          ? toDate(input.latestDepartDate)
+      latestDepartDate: input.latestDepartDate ? toDate(input.latestDepartDate) : null,
+      earliestReturnDate:
+        input.tripType === "ROUND_TRIP" && input.earliestReturnDate
+          ? toDate(input.earliestReturnDate)
           : null,
       latestReturnDate:
         input.tripType === "ROUND_TRIP" && input.latestReturnDate
@@ -580,6 +612,7 @@ function buildMergedSavedSearchInput(
     destinationAirports: string[];
     earliestDepartDate: Date;
     latestDepartDate: Date | null;
+    earliestReturnDate: Date | null;
     latestReturnDate: Date | null;
     minTripDays: number | null;
     maxTripDays: number | null;
@@ -603,6 +636,12 @@ function buildMergedSavedSearchInput(
       updates.latestDepartDate === undefined
         ? toDateInput(savedSearch.latestDepartDate)
         : optionalValue(updates.latestDepartDate),
+    earliestReturnDate:
+      tripType === "ROUND_TRIP"
+        ? updates.earliestReturnDate === undefined
+          ? toDateInput(savedSearch.earliestReturnDate)
+          : optionalValue(updates.earliestReturnDate)
+        : undefined,
     latestReturnDate:
       tripType === "ROUND_TRIP"
         ? updates.latestReturnDate === undefined

@@ -11,6 +11,7 @@ healthRouter.get("/", (_req, res) => {
     scheduledFlightProvider: env.SCHEDULED_FLIGHT_PROVIDER,
     smsConfigured,
     serpApiSearchLimits: {
+      maxRequestsPerSearch: env.MAX_SERPAPI_REQUESTS_PER_SEARCH,
       maxDatePairs: env.MAX_SERPAPI_DATE_PAIRS,
       compareSplitOneWays: env.SERPAPI_COMPARE_SPLIT_ONE_WAYS,
       roundTripOutboundOptions: env.SERPAPI_ROUND_TRIP_OUTBOUND_OPTIONS,

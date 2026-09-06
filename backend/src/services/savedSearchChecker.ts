@@ -16,6 +16,7 @@ type SavedSearchForCheck = {
   destinationAirports: string[];
   earliestDepartDate: Date;
   latestDepartDate: Date | null;
+  earliestReturnDate: Date | null;
   latestReturnDate: Date | null;
   minTripDays: number | null;
   maxTripDays: number | null;
@@ -113,6 +114,7 @@ function buildFlightSearchInput(savedSearch: SavedSearchForCheck): FlightSearchI
     destinationAirports: savedSearch.destinationAirports,
     earliestDepartDate: formatDate(savedSearch.earliestDepartDate),
     ...(savedSearch.latestDepartDate ? { latestDepartDate: formatDate(savedSearch.latestDepartDate) } : {}),
+    ...(savedSearch.earliestReturnDate ? { earliestReturnDate: formatDate(savedSearch.earliestReturnDate) } : {}),
     ...(savedSearch.latestReturnDate ? { latestReturnDate: formatDate(savedSearch.latestReturnDate) } : {}),
     ...(savedSearch.minTripDays ? { minTripDays: savedSearch.minTripDays } : {}),
     ...(savedSearch.maxTripDays ? { maxTripDays: savedSearch.maxTripDays } : {}),
@@ -133,6 +135,7 @@ function buildItineraryCreateInput(itinerary: Itinerary) {
     dealScore: itinerary.dealScore,
     qualityLabel: itinerary.qualityLabel,
     warning: itinerary.warning,
+    bookingTokens: itinerary.bookingTokens ?? [],
     legs: {
       create: itinerary.legs.map((leg) => ({
         direction: leg.direction,

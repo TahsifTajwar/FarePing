@@ -1,4 +1,5 @@
 import { prisma } from "../db/prisma.js";
+import { verifySerpApiBookingPrice } from "./flightProviders/serpApiFlightProvider.js";
 import { sendSms } from "./smsService.js";
 
 const MIN_NOTIFICATION_DEAL_SCORE = 700;
@@ -20,12 +21,14 @@ type ResultBatchForNotification = {
 };
 
 type ItineraryForNotification = {
+  id: string;
   type: "ROUND_TRIP" | "SPLIT_ONE_WAYS" | "ONE_WAY";
   totalPrice: number;
   currency: string;
   dealScore: number | null;
   qualityLabel: string | null;
   totalDurationMinutes: number | null;
+  bookingTokens: string[];
   legs: ItineraryLegForNotification[];
 };
 
@@ -59,6 +62,25 @@ export async function maybeCreateNotification(
 
   if (dealScore < MIN_NOTIFICATION_DEAL_SCORE) {
     return buildSkippedDecision("Best itinerary is below the notification score threshold.");
+  }
+
+  if (bestItinerary.bookingTokens.length > 0) {
+    try {
+      const verifiedPrice = await verifySerpApiBookingPrice(bestItinerary.bookingTokens);
+      bestItinerary.totalPrice = verifiedPrice.totalPrice;
+      await prisma.$transaction([
+        prisma.itineraryResult.update({
+          where: { id: bestItinerary.id },
+          data: { totalPrice: verifiedPrice.totalPrice }
+        }),
+        prisma.searchResultBatch.update({
+          where: { id: resultBatch.id },
+          data: { bestPrice: verifiedPrice.totalPrice }
+        })
+      ]);
+    } catch {
+      return buildSkippedDecision("Could not verify a currently bookable price before notifying.");
+    }
   }
 
   const itineraryFingerprint = buildItineraryFingerprint(bestItinerary);

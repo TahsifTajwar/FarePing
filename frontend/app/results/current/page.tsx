@@ -300,6 +300,13 @@ export default function CurrentResultsPage() {
                 results={currentResults.results}
               />
 
+              {currentResults.results.length === 0 ? (
+                <p className="rounded-md border border-amber-200/25 bg-amber-100/10 px-4 py-4 text-sm text-amber-100">
+                  No fares matched every search constraint. Open Search debug below to see what
+                  the provider returned and which rules removed the options.
+                </p>
+              ) : null}
+
               {currentResults.diagnostics ? (
                 <section className="rounded-lg border border-cyan-100/15 bg-[#07111f]/88 p-4 shadow-[0_24px_70px_rgba(0,0,0,0.30)] backdrop-blur-xl">
                   <button
@@ -326,8 +333,8 @@ export default function CurrentResultsPage() {
                           value={currentResults.diagnostics.provider}
                         />
                         <DebugStat
-                          label="API requests"
-                          value={currentResults.diagnostics.providerDiagnostics?.apiRequestsMade ?? "n/a"}
+                          label="API requests (used / max)"
+                          value={`${currentResults.diagnostics.providerDiagnostics?.apiRequestsMade ?? "n/a"} / ${currentResults.diagnostics.providerDiagnostics?.estimatedApiRequests ?? "n/a"}`}
                         />
                         <DebugStat
                           label="Raw results"
@@ -381,6 +388,10 @@ export default function CurrentResultsPage() {
                           <DebugLine
                             label="Removed by stops"
                             value={currentResults.diagnostics.scoringDiagnostics.removedByStopsRules}
+                          />
+                          <DebugLine
+                            label="Removed by long layovers"
+                            value={currentResults.diagnostics.scoringDiagnostics.removedByLayoverRules ?? 0}
                           />
                           <DebugLine
                             label="Hidden by score/price"

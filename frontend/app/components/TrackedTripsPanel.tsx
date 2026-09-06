@@ -26,6 +26,7 @@ type EditSearchForm = {
   destinationAirports: string;
   earliestDepartDate: string;
   latestDepartDate: string;
+  earliestReturnDate: string;
   latestReturnDate: string;
   minTripDays: string;
   maxTripDays: string;
@@ -203,8 +204,8 @@ export function TrackedTripsPanel() {
     }
 
     return `${formatDisplayDate(savedSearch.earliestDepartDate)} - ${formatDisplayDate(
-      savedSearch.latestReturnDate
-    )}`;
+      savedSearch.latestDepartDate
+    )}, return ${savedSearch.earliestReturnDate ? `from ${formatDisplayDate(savedSearch.earliestReturnDate)} ` : ""}by ${formatDisplayDate(savedSearch.latestReturnDate)}`;
   }
 
   function formatStay(savedSearch: SavedSearch) {
@@ -284,6 +285,7 @@ export function TrackedTripsPanel() {
       destinationAirports: savedSearch.destinationAirports.join(", "),
       earliestDepartDate: formatInputDate(savedSearch.earliestDepartDate),
       latestDepartDate: formatInputDate(savedSearch.latestDepartDate),
+      earliestReturnDate: formatInputDate(savedSearch.earliestReturnDate),
       latestReturnDate: formatInputDate(savedSearch.latestReturnDate),
       minTripDays: savedSearch.minTripDays ? String(savedSearch.minTripDays) : "",
       maxTripDays: savedSearch.maxTripDays ? String(savedSearch.maxTripDays) : "",
@@ -323,7 +325,9 @@ export function TrackedTripsPanel() {
       originAirports: parseAirportCodes(editForm.originAirports),
       destinationAirports: parseAirportCodes(editForm.destinationAirports),
       earliestDepartDate: editForm.earliestDepartDate,
-      latestDepartDate: editForm.tripType === "ONE_WAY" ? editForm.latestDepartDate || null : null,
+      latestDepartDate: editForm.latestDepartDate || null,
+      earliestReturnDate:
+        editForm.tripType === "ROUND_TRIP" ? editForm.earliestReturnDate || null : null,
       latestReturnDate: editForm.tripType === "ROUND_TRIP" ? editForm.latestReturnDate : null,
       minTripDays: editForm.tripType === "ROUND_TRIP" ? Number(editForm.minTripDays) : null,
       maxTripDays:
@@ -353,7 +357,6 @@ export function TrackedTripsPanel() {
     }
 
     if (
-      editForm.tripType === "ONE_WAY" &&
       editForm.latestDepartDate &&
       getDayDifference(editForm.earliestDepartDate, editForm.latestDepartDate) < 0
     ) {
@@ -361,8 +364,23 @@ export function TrackedTripsPanel() {
     }
 
     if (editForm.tripType === "ROUND_TRIP") {
+      if (!editForm.latestDepartDate) {
+        return "Choose a latest departure date for this round trip.";
+      }
+
       if (!editForm.latestReturnDate) {
         return "Choose a latest return date for this round trip.";
+      }
+
+      if (
+        editForm.earliestReturnDate &&
+        getDayDifference(editForm.earliestReturnDate, editForm.latestReturnDate) < 0
+      ) {
+        return "Earliest return cannot be after latest return.";
+      }
+
+      if (getDayDifference(editForm.latestDepartDate, editForm.latestReturnDate) <= 0) {
+        return "Latest departure must be before latest return.";
       }
 
       const availableTripDays = getDayDifference(
@@ -752,22 +770,32 @@ export function TrackedTripsPanel() {
                             value={editForm.earliestDepartDate}
                           />
                         </label>
-                        {editForm.tripType === "ONE_WAY" ? (
-                          <label className="grid gap-2 text-sm font-semibold">
-                            Latest departure
-                            <input
-                              className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none focus:border-cyan-200"
-                              onChange={(event) =>
-                                updateEditForm("latestDepartDate", event.target.value)
-                              }
-                              type="date"
-                              value={editForm.latestDepartDate}
-                            />
-                          </label>
-                        ) : null}
+                        <label className="grid gap-2 text-sm font-semibold">
+                          Latest departure{editForm.tripType === "ONE_WAY" ? " (optional)" : ""}
+                          <input
+                            className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none focus:border-cyan-200"
+                            onChange={(event) =>
+                              updateEditForm("latestDepartDate", event.target.value)
+                            }
+                            required={editForm.tripType === "ROUND_TRIP"}
+                            type="date"
+                            value={editForm.latestDepartDate}
+                          />
+                        </label>
 
                         {editForm.tripType === "ROUND_TRIP" ? (
                           <>
+                            <label className="grid gap-2 text-sm font-semibold">
+                              Earliest return (optional)
+                              <input
+                                className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none focus:border-cyan-200"
+                                onChange={(event) =>
+                                  updateEditForm("earliestReturnDate", event.target.value)
+                                }
+                                type="date"
+                                value={editForm.earliestReturnDate}
+                              />
+                            </label>
                             <label className="grid gap-2 text-sm font-semibold">
                               Latest return
                               <input

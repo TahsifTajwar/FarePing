@@ -7,10 +7,10 @@ import { ChevronDown, Plane, RefreshCw } from "lucide-react";
 import { AuthPanel } from "../../components/AuthPanel";
 import { BackButton } from "../../components/BackButton";
 import { FlightLegDetails } from "../../components/FlightLegDetails";
+import { FlightLegSummary } from "../../components/FlightLegSummary";
+import { VerifiedPriceAction } from "../../components/VerifiedPriceAction";
 import { authFetch } from "../../components/authClient";
 import {
-  formatDuration,
-  getSavedAirlineSummary,
   itineraryLabels,
   type SavedItinerary,
   type SavedItineraryLeg,
@@ -80,11 +80,7 @@ export default function AlertDetailPage() {
       );
       setSavedSearch(data.savedSearch);
       setLatestBatch(data.savedSearch.resultBatches?.[0] ?? null);
-      setExpandedItineraryIds(
-        data.savedSearch.resultBatches?.[0]?.itineraries[0]
-          ? [data.savedSearch.resultBatches[0].itineraries[0].id]
-          : []
-      );
+      setExpandedItineraryIds([]);
       void fetchAirportDetails(data.savedSearch, data.savedSearch.resultBatches?.[0] ?? null);
     } catch (alertError) {
       setError(
@@ -124,13 +120,13 @@ export default function AlertDetailPage() {
         "Could not check this alert right now."
       );
       setLatestBatch(data.resultBatch);
-      setExpandedItineraryIds(data.resultBatch.itineraries[0] ? [data.resultBatch.itineraries[0].id] : []);
+      setExpandedItineraryIds([]);
       setCheckMessage(
         data.resultBatch.itineraries.length > 0
           ? `Saved ${data.resultBatch.itineraries.length} ranked option${
               data.resultBatch.itineraries.length === 1 ? "" : "s"
             } from this check.`
-          : "Check finished. No fares met FarePing's quality threshold."
+          : "Check finished. No fares matched every search constraint."
       );
 
       if (savedSearch) {
@@ -300,6 +296,8 @@ export default function AlertDetailPage() {
   const dateSummary = savedSearch
     ? savedSearch.tripType === "ROUND_TRIP"
       ? `${formatLongDate(savedSearch.earliestDepartDate)} to ${
+          savedSearch.latestDepartDate ? formatLongDate(savedSearch.latestDepartDate) : "departure date"
+        }, return ${savedSearch.earliestReturnDate ? `from ${formatLongDate(savedSearch.earliestReturnDate)} ` : ""}by ${
           savedSearch.latestReturnDate ? formatLongDate(savedSearch.latestReturnDate) : "return date"
         }`
       : `${formatLongDate(savedSearch.earliestDepartDate)}${
@@ -313,26 +311,6 @@ export default function AlertDetailPage() {
       : "One-way trip";
 
   const routeSummary = savedSearch ? formatSavedSearchRoute(savedSearch) : "Loading route";
-
-  function buildRankingReasons(itinerary: SavedItinerary, index: number) {
-    const reasons = [];
-
-    if (index === 0) {
-      reasons.push("Best match");
-    }
-
-    if (latestBatch?.bestPrice && itinerary.totalPrice === latestBatch.bestPrice) {
-      reasons.push("Lowest saved price");
-    }
-
-    if ((itinerary.totalStops ?? 0) === 0) {
-      reasons.push("Nonstop");
-    } else if ((itinerary.totalStops ?? 0) === 1) {
-      reasons.push("1 stop");
-    }
-
-    return reasons.slice(0, 3);
-  }
 
   function formatLegTimingLabel(leg: SavedItineraryLeg) {
     return formatLongDate(leg.departDate);
@@ -487,7 +465,7 @@ export default function AlertDetailPage() {
 
               {latestBatch.itineraries.length === 0 ? (
                 <p className="rounded-md bg-amber-100 px-4 py-3 text-sm font-medium text-amber-900">
-                  No fares met FarePing&apos;s quality threshold in the latest check.
+                  No fares matched every search constraint in the latest check.
                 </p>
               ) : (
                 <div className="grid gap-3">
@@ -495,7 +473,6 @@ export default function AlertDetailPage() {
                     const firstLeg = itinerary.legs[0];
                     const firstBookingLink = firstLeg?.bookingLink;
                     const usesSeparateBookingLinks = itinerary.type === "SPLIT_ONE_WAYS";
-                    const rankingReasons = buildRankingReasons(itinerary, index);
                     const expanded = expandedItineraryIds.includes(itinerary.id);
 
                     return (
@@ -514,51 +491,26 @@ export default function AlertDetailPage() {
                               </span>
                             </div>
 
-                            <h3 className="text-2xl font-semibold tracking-normal text-white">
+                            <h3 className="text-lg font-semibold tracking-normal text-white">
                               {formatItineraryRoute(itinerary)}
                             </h3>
-                            <p className="mt-1 text-sm font-medium text-slate-500">
-                              {firstLeg
-                                ? `${firstLeg.originAirport} to ${firstLeg.destinationAirport}${
-                                    itinerary.type === "ONE_WAY" ? "" : ", then back"
-                                  }`
-                                : "Airport details unavailable"}
-                            </p>
-                            <p className="mt-2 text-sm leading-6 text-slate-300">
-                              {getSavedAirlineSummary(itinerary)}
-                              {itinerary.totalDurationMinutes
-                                ? ` · ${formatDuration(itinerary.totalDurationMinutes)} total flying time`
-                                : ""}
-                            </p>
 
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              {rankingReasons.map((reason) => (
-                                <span
-                                  className="rounded-full border border-cyan-100/18 bg-cyan-100/10 px-3 py-1 text-xs font-medium text-cyan-100"
-                                  key={`${itinerary.id}-${reason}`}
-                                >
-                                  {reason}
-                                </span>
+                            <div className="mt-4 grid gap-0">
+                              {itinerary.legs.map((leg) => (
+                                <FlightLegSummary
+                                  key={`${itinerary.id}-${leg.id}`}
+                                  leg={leg}
+                                />
                               ))}
                             </div>
                           </div>
 
-                          <div className="lg:text-right">
-                            <p className="text-xs font-semibold text-slate-500">Total</p>
-                            <p className="text-3xl font-semibold text-cyan-100">
-                              {itinerary.currency} {itinerary.totalPrice}
-                            </p>
-                            {!usesSeparateBookingLinks && firstBookingLink ? (
-                              <a
-                                className="mt-3 inline-flex h-10 items-center justify-center rounded-md bg-cyan-100 px-4 text-sm font-semibold text-[#07111f] hover:bg-white"
-                                href={firstBookingLink}
-                                rel="noreferrer"
-                                target="_blank"
-                              >
-                                View booking
-                              </a>
-                            ) : null}
-                          </div>
+                          <VerifiedPriceAction
+                            bookingLink={usesSeparateBookingLinks ? null : firstBookingLink}
+                            bookingTokens={itinerary.bookingTokens}
+                            currency={itinerary.currency}
+                            initialPrice={itinerary.totalPrice}
+                          />
 
                           <button
                             aria-expanded={expanded}

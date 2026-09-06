@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { searchFlightsWithDiagnostics } from "../services/flightSearch.js";
+import { verifySerpApiBookingPrice } from "../services/flightProviders/serpApiFlightProvider.js";
 
 export const flightsRouter = Router();
 
@@ -11,6 +12,7 @@ const flightSearchSchema = z
     destinationAirports: z.array(z.string().min(3)).min(1),
     earliestDepartDate: z.string().date(),
     latestDepartDate: z.string().date().optional(),
+    earliestReturnDate: z.string().date().optional(),
     latestReturnDate: z.string().date().optional(),
     minTripDays: z.coerce.number().int().positive().optional(),
     maxTripDays: z.coerce.number().int().positive().optional(),
@@ -19,7 +21,6 @@ const flightSearchSchema = z
   })
   .superRefine((search, ctx) => {
     if (
-      search.tripType === "ONE_WAY" &&
       search.latestDepartDate &&
       getDayDifference(search.earliestDepartDate, search.latestDepartDate) < 0
     ) {
@@ -34,11 +35,31 @@ const flightSearchSchema = z
       return;
     }
 
+    if (!search.latestDepartDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "latestDepartDate is required for round-trip searches.",
+        path: ["latestDepartDate"]
+      });
+    }
+
     if (!search.latestReturnDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "latestReturnDate is required for round-trip searches.",
         path: ["latestReturnDate"]
+      });
+    }
+
+    if (
+      search.earliestReturnDate &&
+      search.latestReturnDate &&
+      getDayDifference(search.earliestReturnDate, search.latestReturnDate) < 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "earliestReturnDate cannot be after latestReturnDate.",
+        path: ["earliestReturnDate"]
       });
     }
 
@@ -50,8 +71,16 @@ const flightSearchSchema = z
       });
     }
 
-    if (!search.latestReturnDate || !search.minTripDays) {
+    if (!search.latestDepartDate || !search.latestReturnDate || !search.minTripDays) {
       return;
+    }
+
+    if (getDayDifference(search.latestDepartDate, search.latestReturnDate) <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "latestDepartDate must be before latestReturnDate.",
+        path: ["latestDepartDate"]
+      });
     }
 
     const availableTripDays = getDayDifference(search.earliestDepartDate, search.latestReturnDate);
@@ -91,6 +120,27 @@ const flightSearchSchema = z
   });
 
 type FlightSearch = z.infer<typeof flightSearchSchema>;
+
+const bookingPriceSchema = z.object({
+  bookingTokens: z.array(z.string().min(20).max(5000)).min(1).max(2)
+});
+
+flightsRouter.post("/booking-price", async (req, res) => {
+  const parsedInput = bookingPriceSchema.safeParse(req.body);
+
+  if (!parsedInput.success) {
+    res.status(400).json({ message: "Booking price request is invalid." });
+    return;
+  }
+
+  try {
+    res.json(await verifySerpApiBookingPrice(parsedInput.data.bookingTokens));
+  } catch (error) {
+    res.status(502).json({
+      message: error instanceof Error ? error.message : "Booking price verification failed."
+    });
+  }
+});
 
 flightsRouter.post("/search", async (req, res) => {
   const parsedSearch = flightSearchSchema.safeParse(req.body);

@@ -11,11 +11,16 @@ const tripDraftSchema = z.object({
   destinationAirports: z.array(z.string()).optional(),
   earliestDepartDate: z.string().nullable().optional(),
   latestDepartDate: z.string().nullable().optional(),
+  earliestReturnDate: z.string().nullable().optional(),
   latestReturnDate: z.string().nullable().optional(),
   minTripDays: z.number().int().positive().nullable().optional(),
   maxTripDays: z.number().int().positive().nullable().optional(),
   maxPrice: z.number().positive().nullable().optional(),
-  phone: z.string().nullable().optional()
+  phone: z.string().nullable().optional(),
+  minTripDaysProvided: z.boolean().optional(),
+  earliestReturnDateSkipped: z.boolean().optional(),
+  maxTripDaysProvided: z.boolean().optional(),
+  maxTripDaysFlexible: z.boolean().optional()
 });
 
 const tripAssistantMessageSchema = z.object({

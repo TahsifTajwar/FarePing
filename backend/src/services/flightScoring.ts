@@ -7,6 +7,7 @@ import {
 import { env } from "../config/env.js";
 
 const MAX_PRICE_OVER_BUDGET = 50;
+const MAX_VISIBLE_LAYOVER_MINUTES = 12 * 60;
 
 export function scoreFilterAndSortResults(
   results: UnscoredItinerary[],
@@ -25,13 +26,19 @@ export function scoreFilterAndSortResultsWithDiagnostics(
     maxStops === undefined
       ? allowedByStay
       : allowedByStay.filter((result) => result.legs.every((leg) => leg.stops <= maxStops));
-  const shortestDuration = Math.min(...allowedByStops.map((result) => result.totalDurationMinutes));
-  const cheapestPrice = Math.min(...allowedByStops.map((result) => result.totalPrice));
+  const allowedByLayovers = allowedByStops.filter(
+    (result) => getLongestLayoverMinutes(result) <= MAX_VISIBLE_LAYOVER_MINUTES
+  );
+  const shortestDuration = Math.min(
+    ...allowedByLayovers.map((result) => result.totalDurationMinutes)
+  );
+  const cheapestPrice = Math.min(...allowedByLayovers.map((result) => result.totalPrice));
 
-  const scoredResults = allowedByStops
-    .map((result) => addDealScore(result, search, shortestDuration, cheapestPrice))
+  const scoredResults = allowedByLayovers.map((result) =>
+    addDealScore(result, search, shortestDuration, cheapestPrice)
+  );
   const visibleResults = scoredResults.filter(
-      (result) =>
+    (result) =>
       result.dealScore >= env.MIN_VISIBLE_DEAL_SCORE &&
       scorePrice(result.totalPrice, search.maxPrice, cheapestPrice) > 0
   );
@@ -45,6 +52,7 @@ export function scoreFilterAndSortResultsWithDiagnostics(
       rawItinerariesByType: countByType(results),
       removedByStayRules: results.length - allowedByStay.length,
       removedByStopsRules: allowedByStay.length - allowedByStops.length,
+      removedByLayoverRules: allowedByStops.length - allowedByLayovers.length,
       scoredItineraries: scoredResults.length,
       hiddenByScoreOrPriceRules: scoredResults.length - visibleResults.length,
       visibleItineraries: visibleResults.length,
@@ -151,7 +159,7 @@ function addDealScore(
   const dealScore =
     scorePrice(itinerary.totalPrice, search.maxPrice, cheapestPrice) +
     scoreDuration(itinerary.totalDurationMinutes, shortestDuration) +
-    scoreStops(itinerary.legs.reduce((totalStops, leg) => totalStops + leg.stops, 0)) +
+    scoreConnections(itinerary) +
     scoreStayFit(itinerary, search) +
     scoreCarryOn(itinerary.carryOnIncluded) +
     scoreSplitTicketRisk(itinerary.type);
@@ -198,20 +206,41 @@ function scoreDuration(totalDurationMinutes: number, shortestDurationMinutes: nu
   return Math.round(score);
 }
 
-function scoreStops(totalStops: number) {
-  if (totalStops === 0) {
+function scoreConnections(itinerary: UnscoredItinerary) {
+  const stops = Math.max(...itinerary.legs.map((leg) => leg.stops), 0);
+
+  if (stops === 0) {
     return 150;
   }
 
-  if (totalStops === 1) {
+  if (stops >= 2) {
+    return 20;
+  }
+
+  const longestLayover = getLongestLayoverMinutes(itinerary);
+
+  if (longestLayover <= 2 * 60) {
+    return 110;
+  }
+
+  if (longestLayover <= 6 * 60) {
     return 95;
   }
 
-  if (totalStops === 2) {
-    return 25;
+  if (longestLayover <= 8 * 60) {
+    return 65;
   }
 
-  return 5;
+  return 25;
+}
+
+function getLongestLayoverMinutes(itinerary: UnscoredItinerary) {
+  return Math.max(
+    ...itinerary.legs.flatMap((leg) =>
+      (leg.segments ?? []).map((segment) => segment.layoverAfterMinutes ?? 0)
+    ),
+    0
+  );
 }
 
 function scoreStayFit(itinerary: UnscoredItinerary, search: FlightSearchInput) {

@@ -38,12 +38,14 @@ type TripDraft = {
   destinationAirports: string[];
   earliestDepartDate: string | null;
   latestDepartDate: string | null;
+  earliestReturnDate: string | null;
   latestReturnDate: string | null;
   minTripDays: number | null;
   maxTripDays: number | null;
   maxPrice: number | null;
   phone: string | null;
   minTripDaysProvided: boolean;
+  earliestReturnDateSkipped: boolean;
   maxTripDaysProvided: boolean;
   maxTripDaysFlexible: boolean;
 };
@@ -72,10 +74,12 @@ type SearchPageDraft = {
   destinationAirport: string;
   earliestDepartDate: string;
   latestDepartDate: string;
+  earliestReturnDate: string;
   latestReturnDate: string;
   minTripDays: string;
   maxTripDays: string;
   minTripDaysProvided: boolean;
+  earliestReturnDateSkipped: boolean;
   maxTripDaysProvided: boolean;
   maxTripDaysFlexible: boolean;
   maxPrice: string;
@@ -121,10 +125,12 @@ function readSearchPageDraft() {
       destinationAirport: parsedDraft.destinationAirport ?? "",
       earliestDepartDate: parsedDraft.earliestDepartDate ?? "",
       latestDepartDate: parsedDraft.latestDepartDate ?? "",
+      earliestReturnDate: parsedDraft.earliestReturnDate ?? "",
       latestReturnDate: parsedDraft.latestReturnDate ?? "",
       minTripDays: parsedDraft.minTripDays ?? "",
       maxTripDays: parsedDraft.maxTripDays ?? "",
       minTripDaysProvided: Boolean(parsedDraft.minTripDaysProvided),
+      earliestReturnDateSkipped: Boolean(parsedDraft.earliestReturnDateSkipped),
       maxTripDaysProvided: Boolean(parsedDraft.maxTripDaysProvided),
       maxTripDaysFlexible: Boolean(parsedDraft.maxTripDaysFlexible),
       maxPrice: parsedDraft.maxPrice ?? "",
@@ -151,10 +157,12 @@ export default function Home() {
   const [destinationAirport, setDestinationAirport] = useState("");
   const [earliestDepartDate, setEarliestDepartDate] = useState("");
   const [latestDepartDate, setLatestDepartDate] = useState("");
+  const [earliestReturnDate, setEarliestReturnDate] = useState("");
   const [latestReturnDate, setLatestReturnDate] = useState("");
   const [minTripDays, setMinTripDays] = useState("");
   const [maxTripDays, setMaxTripDays] = useState("");
   const [minTripDaysProvided, setMinTripDaysProvided] = useState(false);
+  const [earliestReturnDateSkipped, setEarliestReturnDateSkipped] = useState(false);
   const [maxTripDaysProvided, setMaxTripDaysProvided] = useState(false);
   const [maxTripDaysFlexible, setMaxTripDaysFlexible] = useState(false);
   const [maxPrice, setMaxPrice] = useState("");
@@ -199,10 +207,12 @@ export default function Home() {
     setDestinationAirport(savedDraft.destinationAirport);
     setEarliestDepartDate(savedDraft.earliestDepartDate);
     setLatestDepartDate(savedDraft.latestDepartDate);
+    setEarliestReturnDate(savedDraft.earliestReturnDate);
     setLatestReturnDate(savedDraft.latestReturnDate);
     setMinTripDays(savedDraft.minTripDays);
     setMaxTripDays(savedDraft.maxTripDays);
     setMinTripDaysProvided(savedDraft.minTripDaysProvided);
+    setEarliestReturnDateSkipped(savedDraft.earliestReturnDateSkipped);
     setMaxTripDaysProvided(savedDraft.maxTripDaysProvided);
     setMaxTripDaysFlexible(savedDraft.maxTripDaysFlexible);
     setMaxPrice(savedDraft.maxPrice);
@@ -230,10 +240,12 @@ export default function Home() {
       destinationAirport,
       earliestDepartDate,
       latestDepartDate,
+      earliestReturnDate,
       latestReturnDate,
       minTripDays,
       maxTripDays,
       minTripDaysProvided,
+      earliestReturnDateSkipped,
       maxTripDaysProvided,
       maxTripDaysFlexible,
       maxPrice,
@@ -256,10 +268,12 @@ export default function Home() {
     destinationAirport,
     earliestDepartDate,
     latestDepartDate,
+    earliestReturnDate,
     latestReturnDate,
     minTripDays,
     maxTripDays,
     minTripDaysProvided,
+    earliestReturnDateSkipped,
     maxTripDaysProvided,
     maxTripDaysFlexible,
     maxPrice,
@@ -287,11 +301,12 @@ export default function Home() {
     setTripType(nextTripType);
 
     if (nextTripType === "ONE_WAY") {
+      setEarliestReturnDate("");
+      setEarliestReturnDateSkipped(false);
       setLatestReturnDate("");
       setMinTripDays("");
       setMaxTripDays("");
     } else {
-      setLatestDepartDate("");
       setMinTripDays((currentMinTripDays) => currentMinTripDays || "3");
     }
   }
@@ -307,9 +322,10 @@ export default function Home() {
       originAirports: parseAirportCodes(originAirport),
       destinationAirports: parseAirportCodes(destinationAirport),
       earliestDepartDate,
-      ...(tripType === "ONE_WAY" && latestDepartDate ? { latestDepartDate } : {}),
+      ...(latestDepartDate ? { latestDepartDate } : {}),
       ...(tripType === "ROUND_TRIP"
         ? {
+            ...(earliestReturnDate ? { earliestReturnDate } : {}),
             latestReturnDate,
             minTripDays: Number(minTripDays),
             ...(!maxTripDaysFlexible && maxTripDays ? { maxTripDays: Number(maxTripDays) } : {})
@@ -429,7 +445,6 @@ export default function Home() {
     }
 
     if (
-      tripType === "ONE_WAY" &&
       latestDepartDate &&
       isValidDateString(latestDepartDate) &&
       getDayDifference(earliestDepartDate, latestDepartDate) < 0
@@ -438,8 +453,24 @@ export default function Home() {
     }
 
     if (tripType === "ROUND_TRIP") {
+      if (!isValidDateString(latestDepartDate)) {
+        return "Latest departure needs to be in YYYY-MM-DD format.";
+      }
+
       if (!isValidDateString(latestReturnDate)) {
         return "Latest return needs to be in YYYY-MM-DD format.";
+      }
+
+      if (
+        earliestReturnDate &&
+        (!isValidDateString(earliestReturnDate) ||
+          getDayDifference(earliestReturnDate, latestReturnDate) < 0)
+      ) {
+        return "Earliest return must be a valid date on or before latest return.";
+      }
+
+      if (getDayDifference(latestDepartDate, latestReturnDate) <= 0) {
+        return "Latest departure must be before latest return.";
       }
 
       const availableTripDays = getDayDifference(earliestDepartDate, latestReturnDate);
@@ -483,12 +514,14 @@ export default function Home() {
       destinationAirports: parseAirportCodes(destinationAirport),
       earliestDepartDate: earliestDepartDate || null,
       latestDepartDate: latestDepartDate || null,
+      earliestReturnDate: earliestReturnDate || null,
       latestReturnDate: latestReturnDate || null,
       minTripDays: minTripDays ? Number(minTripDays) : null,
       maxTripDays: maxTripDays ? Number(maxTripDays) : null,
       maxPrice: maxPrice ? Number(maxPrice) : null,
       phone: phone.trim() || null,
       minTripDaysProvided,
+      earliestReturnDateSkipped,
       maxTripDaysProvided,
       maxTripDaysFlexible
     };
@@ -502,6 +535,7 @@ export default function Home() {
       currentDraft.destinationAirports.join(",") !== draft.destinationAirports.join(",") ||
       currentDraft.earliestDepartDate !== draft.earliestDepartDate ||
       currentDraft.latestDepartDate !== draft.latestDepartDate ||
+      currentDraft.earliestReturnDate !== draft.earliestReturnDate ||
       currentDraft.latestReturnDate !== draft.latestReturnDate ||
       currentDraft.minTripDays !== draft.minTripDays ||
       currentDraft.maxTripDays !== draft.maxTripDays ||
@@ -522,11 +556,15 @@ export default function Home() {
     }
 
     setEarliestDepartDate(draft.earliestDepartDate ?? "");
-    setLatestDepartDate(draft.tripType === "ONE_WAY" ? draft.latestDepartDate ?? "" : "");
+    setLatestDepartDate(draft.latestDepartDate ?? "");
+    setEarliestReturnDate(draft.tripType === "ROUND_TRIP" ? draft.earliestReturnDate ?? "" : "");
     setLatestReturnDate(draft.tripType === "ROUND_TRIP" ? draft.latestReturnDate ?? "" : "");
     setMinTripDays(draft.tripType === "ROUND_TRIP" && draft.minTripDays ? String(draft.minTripDays) : "");
     setMaxTripDays(draft.tripType === "ROUND_TRIP" && draft.maxTripDays ? String(draft.maxTripDays) : "");
     setMinTripDaysProvided(draft.tripType === "ROUND_TRIP" ? draft.minTripDaysProvided : false);
+    setEarliestReturnDateSkipped(
+      draft.tripType === "ROUND_TRIP" ? draft.earliestReturnDateSkipped : false
+    );
     setMaxTripDaysProvided(draft.tripType === "ROUND_TRIP" ? draft.maxTripDaysProvided : false);
     setMaxTripDaysFlexible(draft.tripType === "ROUND_TRIP" ? draft.maxTripDaysFlexible : false);
 
@@ -578,6 +616,10 @@ export default function Home() {
     const draft = response.tripDraft;
 
     if (!response.readyToSearch) {
+      return false;
+    }
+
+    if (draft.tripType === "ROUND_TRIP" && !draft.latestDepartDate) {
       return false;
     }
 
@@ -810,10 +852,12 @@ export default function Home() {
     setDestinationAirport("");
     setEarliestDepartDate("");
     setLatestDepartDate("");
+    setEarliestReturnDate("");
     setLatestReturnDate("");
     setMinTripDays("");
     setMaxTripDays("");
     setMinTripDaysProvided(false);
+    setEarliestReturnDateSkipped(false);
     setMaxTripDaysProvided(false);
     setMaxTripDaysFlexible(false);
     setMaxPrice("");
@@ -881,7 +925,7 @@ export default function Home() {
   }
 
   function getTotalStops(itinerary: Itinerary) {
-    return itinerary.legs.reduce((totalStops, leg) => totalStops + leg.stops, 0);
+    return Math.max(...itinerary.legs.map((leg) => leg.stops), 0);
   }
 
   async function runFlightSearch() {
@@ -910,10 +954,8 @@ export default function Home() {
       setResults(data.results);
       setHasSearched(true);
 
-      if (data.results.length > 0) {
-        saveCurrentResultsSession(requestBody, data.results, data.diagnostics);
-        router.push("/results/current");
-      }
+      saveCurrentResultsSession(requestBody, data.results, data.diagnostics);
+      router.push("/results/current");
 
       return data.results;
     } catch (searchError) {
@@ -1055,7 +1097,7 @@ export default function Home() {
   const tripTypeLabel = tripType === "ROUND_TRIP" ? "Round trip" : "One way";
   const dateSummary =
     tripType === "ROUND_TRIP"
-      ? `${earliestDepartDate || "Departure not set"} to ${latestReturnDate || "return not set"}`
+      ? `${earliestDepartDate || "Departure not set"} to ${latestDepartDate || "latest departure not set"}, return ${earliestReturnDate ? `from ${earliestReturnDate} ` : ""}by ${latestReturnDate || "not set"}`
       : latestDepartDate
         ? `${earliestDepartDate || "Departure not set"} to ${latestDepartDate}`
         : earliestDepartDate || "Not set";
@@ -1069,6 +1111,7 @@ export default function Home() {
     Boolean(originAirport) ||
     Boolean(destinationAirport) ||
     Boolean(earliestDepartDate) ||
+    Boolean(earliestReturnDate) ||
     Boolean(latestReturnDate) ||
     Boolean(latestDepartDate) ||
     Boolean(maxPrice) ||
@@ -1371,20 +1414,31 @@ export default function Home() {
                       value={earliestDepartDate}
                     />
                   </label>
-                  {tripType === "ONE_WAY" ? (
-                    <label className="grid gap-2 text-sm font-medium">
-                      Latest departure
-                      <input
-                        className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
-                        onChange={(event) => setLatestDepartDate(event.target.value)}
-                        type="date"
-                        value={latestDepartDate}
-                      />
-                    </label>
-                  ) : null}
+                  <label className="grid gap-2 text-sm font-medium">
+                    Latest departure{tripType === "ONE_WAY" ? " (optional)" : ""}
+                    <input
+                      className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
+                      onChange={(event) => setLatestDepartDate(event.target.value)}
+                      required={tripType === "ROUND_TRIP"}
+                      type="date"
+                      value={latestDepartDate}
+                    />
+                  </label>
 
                   {tripType === "ROUND_TRIP" ? (
                     <>
+                      <label className="grid gap-2 text-sm font-medium">
+                        Earliest return (optional)
+                        <input
+                          className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
+                          onChange={(event) => {
+                            setEarliestReturnDate(event.target.value);
+                            setEarliestReturnDateSkipped(!event.target.value);
+                          }}
+                          type="date"
+                          value={earliestReturnDate}
+                        />
+                      </label>
                       <label className="grid gap-2 text-sm font-medium">
                         Latest return
                         <input
@@ -1490,7 +1544,7 @@ export default function Home() {
 
                 {noResultsFound ? (
                   <p className="rounded-md bg-amber-100 px-4 py-3 text-sm font-medium text-amber-900">
-                    No fares met FarePing&apos;s quality threshold for this search.
+                    No fares matched the route, dates, stops, and price limits for this search.
                   </p>
                 ) : null}
               </div>

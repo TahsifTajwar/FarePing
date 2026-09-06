@@ -11,6 +11,22 @@ const optionalEnvUrl = z.preprocess(
   z.string().url().optional()
 );
 
+const envBoolean = z.preprocess((value) => {
+  if (typeof value === "string") {
+    const normalizedValue = value.trim().toLowerCase();
+
+    if (normalizedValue === "true") {
+      return true;
+    }
+
+    if (normalizedValue === "false") {
+      return false;
+    }
+  }
+
+  return value;
+}, z.boolean());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -23,12 +39,13 @@ const envSchema = z.object({
   AMADEUS_CLIENT_SECRET: z.string().optional(),
   SERPAPI_BASE_URL: z.string().url().default("https://serpapi.com"),
   SERPAPI_API_KEY: z.string().optional(),
-  MAX_SERPAPI_DATE_PAIRS: z.coerce.number().int().positive().max(50).default(10),
-  SERPAPI_COMPARE_SPLIT_ONE_WAYS: z.coerce.boolean().default(true),
-  SERPAPI_ROUND_TRIP_OUTBOUND_OPTIONS: z.coerce.number().int().positive().max(20).default(8),
-  SERPAPI_ROUND_TRIP_RETURN_OPTIONS: z.coerce.number().int().positive().max(20).default(6),
-  SERPAPI_SPLIT_OPTIONS_PER_SIDE: z.coerce.number().int().positive().max(20).default(6),
-  SERPAPI_SHOW_HIDDEN: z.coerce.boolean().default(true),
+  MAX_SERPAPI_REQUESTS_PER_SEARCH: z.coerce.number().int().positive().max(500).default(25),
+  MAX_SERPAPI_DATE_PAIRS: z.coerce.number().int().positive().max(50).default(3),
+  SERPAPI_COMPARE_SPLIT_ONE_WAYS: envBoolean.default(true),
+  SERPAPI_ROUND_TRIP_OUTBOUND_OPTIONS: z.coerce.number().int().positive().max(20).default(4),
+  SERPAPI_ROUND_TRIP_RETURN_OPTIONS: z.coerce.number().int().positive().max(20).default(5),
+  SERPAPI_SPLIT_OPTIONS_PER_SIDE: z.coerce.number().int().positive().max(20).default(3),
+  SERPAPI_SHOW_HIDDEN: envBoolean.default(true),
   MIN_VISIBLE_DEAL_SCORE: z.coerce.number().int().min(0).max(1000).default(600),
   SUPABASE_URL: optionalEnvUrl,
   SUPABASE_ANON_KEY: optionalEnvString,
@@ -37,7 +54,7 @@ const envSchema = z.object({
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM_NUMBER: z.string().optional(),
-  TWILIO_USE_TRIAL_TEMPLATE: z.coerce.boolean().default(false)
+  TWILIO_USE_TRIAL_TEMPLATE: envBoolean.default(false)
 });
 
 export const env = envSchema.parse(process.env);

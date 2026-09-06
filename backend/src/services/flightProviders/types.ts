@@ -4,6 +4,7 @@ export type FlightSearchInput = {
   destinationAirports: string[];
   earliestDepartDate: string;
   latestDepartDate?: string;
+  earliestReturnDate?: string;
   latestReturnDate?: string;
   minTripDays?: number;
   maxTripDays?: number;
@@ -51,6 +52,7 @@ export type UnscoredItinerary = {
   summary: string;
   totalDurationMinutes: number;
   carryOnIncluded: boolean | null;
+  bookingTokens?: string[];
   legs: ItineraryLeg[];
 };
 
@@ -67,11 +69,12 @@ export type FlightProviderResult = {
 };
 
 export type FlightProviderDiagnostics = {
-  datePairsSearched?: {
-    departureDate: string;
-    returnDate?: string;
-  }[];
-  apiRequestsMade?: number;
+    datePairsSearched?: {
+      departureDate: string;
+      returnDate?: string;
+    }[];
+    estimatedApiRequests?: number;
+    apiRequestsMade?: number;
   rawItinerariesFound?: number;
   rawItinerariesByType?: Partial<Record<ItineraryType, number>>;
   providerErrors?: string[];

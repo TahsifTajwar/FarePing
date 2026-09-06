@@ -302,8 +302,12 @@ function getMockReturnDate(search: FlightSearchInput) {
 
   const stayDays = search.maxTripDays ?? search.minTripDays ?? 3;
   const mockReturnDate = addDays(search.earliestDepartDate, stayDays);
+  const returnDate =
+    search.earliestReturnDate && mockReturnDate < search.earliestReturnDate
+      ? search.earliestReturnDate
+      : mockReturnDate;
 
-  return mockReturnDate <= search.latestReturnDate ? mockReturnDate : search.latestReturnDate;
+  return returnDate <= search.latestReturnDate ? returnDate : search.latestReturnDate;
 }
 
 function addDays(date: string, days: number) {

@@ -8,6 +8,7 @@ export type SavedSearch = {
   destinationAirports: string[];
   earliestDepartDate: string;
   latestDepartDate: string | null;
+  earliestReturnDate: string | null;
   latestReturnDate: string | null;
   minTripDays: number | null;
   maxTripDays: number | null;
@@ -37,6 +38,7 @@ export type SavedItinerary = {
   dealScore: number | null;
   qualityLabel: string | null;
   warning: string | null;
+  bookingTokens?: string[];
   totalStops: number | null;
   legs: SavedItineraryLeg[];
 };

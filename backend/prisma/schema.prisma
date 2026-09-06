@@ -47,6 +47,7 @@ model SavedSearch {
   destinationAirports String[]
   earliestDepartDate  DateTime
   latestDepartDate    DateTime?
+  earliestReturnDate  DateTime?
   latestReturnDate    DateTime?
   minTripDays         Int?
   maxTripDays         Int?
@@ -84,6 +85,7 @@ model ItineraryResult {
   dealScore                  Int?
   qualityLabel               String?
   warning                    String?
+  bookingTokens              String[]          @default([])
   resultBatch                SearchResultBatch @relation(fields: [resultBatchId], references: [id])
   legs                       ItineraryLeg[]
 }

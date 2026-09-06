@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { FlightLegDetails } from "./FlightLegDetails";
+import { FlightLegSummary } from "./FlightLegSummary";
+import { VerifiedPriceAction } from "./VerifiedPriceAction";
 import {
-  formatDuration,
   formatShortDate,
   formatStops,
-  getAirlineSummary,
   getTotalStops,
   itineraryLabels,
   type Itinerary
@@ -65,22 +65,8 @@ function getCityRoute(itinerary: Itinerary, airportNamesByCode: Record<string, s
   return `${origin} to ${destination}${itinerary.type === "ONE_WAY" ? "" : ", then back"}`;
 }
 
-function getCodeRoute(itinerary: Itinerary) {
-  const firstLeg = itinerary.legs[0];
-
-  if (!firstLeg) {
-    return "";
-  }
-
-  return `${firstLeg.originAirport} -> ${firstLeg.destinationAirport}${
-    itinerary.type === "ONE_WAY" ? "" : " -> " + firstLeg.originAirport
-  }`;
-}
-
 export function CurrentResultsList({ results, airportNamesByCode = {} }: CurrentResultsListProps) {
-  const [expandedItineraryIds, setExpandedItineraryIds] = useState<string[]>(() =>
-    results[0] ? [results[0].id] : []
-  );
+  const [expandedItineraryIds, setExpandedItineraryIds] = useState<string[]>([]);
 
   function toggleItinerary(itineraryId: string) {
     setExpandedItineraryIds((currentIds) =>
@@ -121,21 +107,18 @@ export function CurrentResultsList({ results, airportNamesByCode = {} }: Current
                   ))}
                 </div>
 
-                <h3 className="text-2xl font-semibold tracking-normal text-white">
+                <h3 className="text-lg font-semibold tracking-normal text-white">
                   {getCityRoute(itinerary, airportNamesByCode)}
                 </h3>
-                {getCodeRoute(itinerary) ? (
-                  <p className="mt-1 text-sm font-medium text-slate-500">
-                    {getCodeRoute(itinerary)}
-                  </p>
-                ) : null}
-                <p className="mt-2 text-sm leading-6 text-slate-300">
-                  {getAirlineSummary(itinerary)}
-                  {firstLeg ? ` · ${formatShortDate(firstLeg.departDate)}` : ""}
-                  {itinerary.totalDurationMinutes
-                    ? ` · ${formatDuration(itinerary.totalDurationMinutes)} total flying time`
-                    : ""}
-                </p>
+
+                <div className="mt-4 grid gap-0">
+                  {itinerary.legs.map((leg) => (
+                    <FlightLegSummary
+                      key={`${itinerary.id}-${leg.direction}-${leg.departDate}`}
+                      leg={leg}
+                    />
+                  ))}
+                </div>
                 {itinerary.savingsComparedToRoundTrip ? (
                   <p className="mt-2 text-sm font-medium text-cyan-100">
                     Separate tickets. Check baggage and change rules before booking.
@@ -143,22 +126,12 @@ export function CurrentResultsList({ results, airportNamesByCode = {} }: Current
                 ) : null}
               </div>
 
-              <div className="lg:text-right">
-                <p className="text-xs font-semibold text-slate-500">Total</p>
-                <p className="text-3xl font-semibold text-cyan-100">
-                  {itinerary.currency} {itinerary.totalPrice}
-                </p>
-                {!shouldShowSeparateBookingLinks && firstLeg ? (
-                  <a
-                    className="mt-3 inline-flex h-10 items-center justify-center rounded-md bg-cyan-100 px-4 text-sm font-semibold text-[#07111f] hover:bg-white"
-                    href={primaryBookingLink}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    View booking
-                  </a>
-                ) : null}
-              </div>
+              <VerifiedPriceAction
+                bookingLink={shouldShowSeparateBookingLinks ? null : primaryBookingLink}
+                bookingTokens={itinerary.bookingTokens}
+                currency={itinerary.currency}
+                initialPrice={itinerary.totalPrice}
+              />
 
               <button
                 aria-expanded={expanded}

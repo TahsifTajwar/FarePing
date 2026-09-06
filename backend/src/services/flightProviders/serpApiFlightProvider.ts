@@ -1,11 +1,12 @@
 import { env } from "../../config/env.js";
+import { sumJourneyDurationMinutes } from "../flightDuration.js";
 import {
   type FlightProvider,
-  type FlightSearchInput,
   type ItineraryLeg,
   type ItineraryType,
   type UnscoredItinerary
 } from "./types.js";
+import { buildSerpApiSearchPlan } from "./serpApiSearchPlan.js";
 
 type SerpApiFlightResponse = {
   search_metadata?: {
@@ -13,7 +14,26 @@ type SerpApiFlightResponse = {
   };
   best_flights?: SerpApiFlightResult[];
   other_flights?: SerpApiFlightResult[];
+  booking_options?: SerpApiBookingOption[];
   error?: string;
+};
+
+export type SerpApiBookingOptionPart = {
+  book_with?: string;
+  price?: number;
+};
+
+export type SerpApiBookingOption = {
+  together?: SerpApiBookingOptionPart;
+  departing?: SerpApiBookingOptionPart;
+  returning?: SerpApiBookingOptionPart;
+};
+
+export type VerifiedBookingPrice = {
+  totalPrice: number;
+  currency: "USD";
+  sellers: string[];
+  requestsMade: number;
 };
 
 type SerpApiFlightResult = {
@@ -56,11 +76,6 @@ type SerpApiSearchParams = {
   maxStops?: number;
 };
 
-type DatePair = {
-  departureDate: string;
-  returnDate: string;
-};
-
 type RoundTripBuildDiagnostics = {
   outboundOptionsFound: number;
   outboundOptionsWithReturnToken: number;
@@ -82,31 +97,52 @@ type SplitOneWayBuildResult = {
 export const serpApiFlightProvider: FlightProvider = {
   name: "serpapi",
   async searchFlights(search) {
+    const searchPlan = buildSerpApiSearchPlan(search, {
+      maxDatePairs: env.MAX_SERPAPI_DATE_PAIRS,
+      roundTripOutboundOptions: env.SERPAPI_ROUND_TRIP_OUTBOUND_OPTIONS,
+      compareSplitOneWays: env.SERPAPI_COMPARE_SPLIT_ONE_WAYS,
+      maxRequests: env.MAX_SERPAPI_REQUESTS_PER_SEARCH
+    });
+
     if (search.tripType === "ONE_WAY") {
-      const response = await fetchGoogleFlights({
-        tripType: "ONE_WAY",
-        originAirports: search.originAirports,
-        destinationAirports: search.destinationAirports,
-        departureDate: search.earliestDepartDate,
-        maxPrice: search.maxPrice + 50,
-        maxStops: search.maxStops
-      });
+      const itineraries: UnscoredItinerary[] = [];
+      const providerErrors: string[] = [];
+      let apiRequestsMade = 0;
+
+      for (const departureDate of searchPlan.departureDates) {
+        try {
+          const response = await fetchGoogleFlights({
+            tripType: "ONE_WAY",
+            originAirports: search.originAirports,
+            destinationAirports: search.destinationAirports,
+            departureDate,
+            maxPrice: search.maxPrice + 50,
+            maxStops: search.maxStops
+          });
+          apiRequestsMade += 1;
+          itineraries.push(...mapResponseToItineraries(response, "ONE_WAY"));
+        } catch (error) {
+          apiRequestsMade += 1;
+          providerErrors.push(getProviderErrorMessage(error));
+        }
+      }
+
+      if (itineraries.length === 0 && providerErrors.length > 0) {
+        throw new Error(providerErrors[0]);
+      }
 
       return {
         provider: this.name,
-        itineraries: mapResponseToItineraries(response, "ONE_WAY"),
+        itineraries: dedupeItineraries(itineraries),
         diagnostics: {
-          datePairsSearched: [
-            {
-              departureDate: search.earliestDepartDate
-            }
-          ],
-          apiRequestsMade: 1,
-          rawItinerariesFound: getFlightResults(response).length,
+          datePairsSearched: searchPlan.departureDates.map((departureDate) => ({ departureDate })),
+          estimatedApiRequests: searchPlan.estimatedApiRequests,
+          apiRequestsMade,
+          rawItinerariesFound: itineraries.length,
           rawItinerariesByType: {
-            ONE_WAY: getFlightResults(response).length
+            ONE_WAY: itineraries.length
           },
-          providerErrors: []
+          providerErrors
         }
       };
     }
@@ -115,7 +151,7 @@ export const serpApiFlightProvider: FlightProvider = {
       throw new Error("latestReturnDate is required before searching SerpApi round-trip flights.");
     }
 
-    const datePairs = buildDatePairs(search, env.MAX_SERPAPI_DATE_PAIRS);
+    const datePairs = searchPlan.datePairs;
     const itineraries: UnscoredItinerary[] = [];
     const providerErrors: string[] = [];
     const roundTripDetails: RoundTripBuildDiagnostics = {
@@ -207,6 +243,7 @@ export const serpApiFlightProvider: FlightProvider = {
       itineraries: dedupeItineraries(itineraries),
       diagnostics: {
         datePairsSearched: datePairs,
+        estimatedApiRequests: searchPlan.estimatedApiRequests,
         apiRequestsMade,
         rawItinerariesFound: itineraries.length,
         rawItinerariesByType: countItinerariesByType(itineraries),
@@ -270,6 +307,90 @@ async function fetchGoogleFlights(params: SerpApiSearchParams) {
   return data;
 }
 
+export async function verifySerpApiBookingPrice(
+  bookingTokens: string[]
+): Promise<VerifiedBookingPrice> {
+  if (bookingTokens.length === 0 || bookingTokens.length > 2) {
+    throw new Error("Price verification requires one booking token, or two for split tickets.");
+  }
+
+  const verifiedParts = await Promise.all(
+    bookingTokens.map(async (bookingToken) => {
+      const response = await fetchBookingOptions(bookingToken);
+      const lowestOption = getLowestBookingOption(response.booking_options ?? []);
+
+      if (!lowestOption) {
+        throw new Error("No currently bookable price was returned for this itinerary.");
+      }
+
+      return lowestOption;
+    })
+  );
+
+  return {
+    totalPrice: verifiedParts.reduce((total, option) => total + option.price, 0),
+    currency: "USD",
+    sellers: verifiedParts.map((option) => option.seller),
+    requestsMade: bookingTokens.length
+  };
+}
+
+async function fetchBookingOptions(bookingToken: string) {
+  if (!env.SERPAPI_API_KEY) {
+    throw new Error("SerpApi key is missing. Add SERPAPI_API_KEY to backend/.env.");
+  }
+
+  const query = new URLSearchParams({
+    engine: "google_flights",
+    api_key: env.SERPAPI_API_KEY,
+    booking_token: bookingToken,
+    currency: "USD",
+    gl: "us",
+    hl: "en",
+    no_cache: "false"
+  });
+  const response = await fetch(`${env.SERPAPI_BASE_URL}/search.json?${query.toString()}`);
+
+  if (!response.ok) {
+    throw new Error(`SerpApi booking verification failed: ${response.status}`);
+  }
+
+  const data = (await response.json()) as SerpApiFlightResponse;
+
+  if (data.error) {
+    throw new Error(`SerpApi booking verification failed: ${data.error}`);
+  }
+
+  return data;
+}
+
+function getBookingOptionPrice(option: SerpApiBookingOption) {
+  if (option.together?.price) {
+    return {
+      price: option.together.price,
+      seller: option.together.book_with ?? "Booking partner"
+    };
+  }
+
+  if (option.departing?.price && option.returning?.price) {
+    return {
+      price: option.departing.price + option.returning.price,
+      seller:
+        [option.departing.book_with, option.returning.book_with].filter(Boolean).join(" + ") ||
+        "Booking partners"
+    };
+  }
+
+  return null;
+}
+
+export function getLowestBookingOption(options: SerpApiBookingOption[]) {
+  return options
+    .map(getBookingOptionPrice)
+    .filter((option): option is { price: number; seller: string } => Boolean(option))
+    .sort((first, second) => first.price - second.price)[0] ?? null;
+}
+
 function getProviderErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "SerpApi flight search failed.";
 }
@@ -324,6 +445,10 @@ function buildSplitOneWayItineraries(
         summary: "Separate one-way fares found through Google Flights results.",
         totalDurationMinutes: outbound.totalDurationMinutes + returnTrip.totalDurationMinutes,
         carryOnIncluded: combineCarryOnStatuses(outbound.carryOnIncluded, returnTrip.carryOnIncluded),
+        bookingTokens: [
+          ...(outbound.bookingTokens ?? []),
+          ...(returnTrip.bookingTokens ?? [])
+        ],
         legs: [
           {
             ...outboundLeg,
@@ -396,12 +521,15 @@ async function buildRoundTripItineraries(
         savingsComparedToRoundTrip: null,
         summary: buildRoundTripSummary(outbound, returnTrip),
         totalDurationMinutes:
-          (outbound.total_duration ?? sumSegmentDurations(outbound.flights ?? [])) +
-          (returnTrip.total_duration ?? sumSegmentDurations(returnTrip.flights ?? [])),
+          (outbound.total_duration ??
+            sumJourneyDurationMinutes(outbound.flights ?? [], outbound.layovers ?? [])) +
+          (returnTrip.total_duration ??
+            sumJourneyDurationMinutes(returnTrip.flights ?? [], returnTrip.layovers ?? [])),
         carryOnIncluded: combineCarryOnStatuses(
           getCarryOnIncludedStatus(outbound),
           getCarryOnIncludedStatus(returnTrip)
         ),
+        bookingTokens: returnTrip.booking_token ? [returnTrip.booking_token] : [],
         legs: [outboundLeg, returnLeg]
       });
     }
@@ -448,8 +576,11 @@ function mapFlightResultToItinerary(
     currency: "USD",
     savingsComparedToRoundTrip: null,
     summary: buildSummary(flightResult, itineraryType),
-    totalDurationMinutes: flightResult.total_duration ?? sumSegmentDurations(segments),
+    totalDurationMinutes:
+      flightResult.total_duration ??
+      sumJourneyDurationMinutes(segments, flightResult.layovers ?? []),
     carryOnIncluded: getCarryOnIncludedStatus(flightResult),
+    bookingTokens: flightResult.booking_token ? [flightResult.booking_token] : [],
     legs
   };
 }
@@ -514,7 +645,7 @@ function mapSegmentsToLeg(
     departDate: getDate(firstSegment?.departure_airport?.time),
     departTime: getTime(firstSegment?.departure_airport?.time),
     arrivalTime: getTime(lastSegment?.arrival_airport?.time),
-    durationMinutes: getLegDurationMinutes(segments),
+    durationMinutes: getLegDurationMinutes(segments, layovers),
     stops: Math.max(segments.length - 1, 0),
     bookingLink: googleFlightsUrl ?? "https://www.google.com/travel/flights",
     segments: segments.map((segment, index) => ({
@@ -687,135 +818,11 @@ function mapMaxStops(maxStops?: number) {
   return undefined;
 }
 
-function buildDatePairs(search: FlightSearchInput, maxDatePairs: number): DatePair[] {
-  if (!search.latestReturnDate || !search.minTripDays) {
-    return [
-      {
-        departureDate: search.earliestDepartDate,
-        returnDate: search.latestReturnDate ?? search.earliestDepartDate
-      }
-    ];
-  }
-
-  const earliestDepartDate = parseDate(search.earliestDepartDate);
-  const latestReturnDate = parseDate(search.latestReturnDate);
-  const windowDays = differenceInDays(earliestDepartDate, latestReturnDate);
-  const maxTripDays = Math.min(search.maxTripDays ?? windowDays, windowDays);
-
-  if (windowDays < search.minTripDays) {
-    return [];
-  }
-
-  const allValidPairs: DatePair[] = [];
-
-  for (let departOffset = 0; departOffset <= windowDays - search.minTripDays; departOffset++) {
-    const departureDate = addDays(earliestDepartDate, departOffset);
-    const remainingWindowDays = differenceInDays(departureDate, latestReturnDate);
-    const longestStayFromDeparture = Math.min(maxTripDays, remainingWindowDays);
-
-    for (let stayDays = search.minTripDays; stayDays <= longestStayFromDeparture; stayDays++) {
-      allValidPairs.push({
-        departureDate: formatDate(departureDate),
-        returnDate: formatDate(addDays(departureDate, stayDays))
-      });
-    }
-  }
-
-  return sampleDatePairs(dedupeDatePairs(allValidPairs), maxDatePairs);
-}
-
-function dedupeDatePairs(datePairs: DatePair[]) {
-  const seen = new Set<string>();
-
-  return datePairs.filter((datePair) => {
-    const key = `${datePair.departureDate}-${datePair.returnDate}`;
-
-    if (seen.has(key)) {
-      return false;
-    }
-
-    seen.add(key);
-    return true;
-  });
-}
-
-function sampleDatePairs(datePairs: DatePair[], maxDatePairs: number) {
-  if (datePairs.length <= maxDatePairs) {
-    return datePairs;
-  }
-
-  const selectedPairs: DatePair[] = [];
-  const firstDepartureDate = datePairs[0]?.departureDate;
-  const latestReturnDate = datePairs.reduce(
-    (latestDate, datePair) => (datePair.returnDate > latestDate ? datePair.returnDate : latestDate),
-    datePairs[0]?.returnDate ?? ""
-  );
-
-  addPriorityDatePairs(
-    selectedPairs,
-    datePairs.filter((datePair) => datePair.departureDate === firstDepartureDate),
-    maxDatePairs
-  );
-
-  addPriorityDatePairs(
-    selectedPairs,
-    datePairs.filter((datePair) => datePair.returnDate === latestReturnDate),
-    maxDatePairs
-  );
-
-  const selectedIndexes = new Set<number>();
-
-  for (let index = 0; index < maxDatePairs; index++) {
-    selectedIndexes.add(Math.round((index * (datePairs.length - 1)) / Math.max(maxDatePairs - 1, 1)));
-  }
-
-  addPriorityDatePairs(
-    selectedPairs,
-    [...selectedIndexes].sort((first, second) => first - second).map((index) => datePairs[index]),
-    maxDatePairs
-  );
-
-  return selectedPairs;
-}
-
-function addPriorityDatePairs(selectedPairs: DatePair[], candidatePairs: DatePair[], maxDatePairs: number) {
-  for (const candidatePair of candidatePairs) {
-    if (selectedPairs.length >= maxDatePairs) {
-      return;
-    }
-
-    const alreadySelected = selectedPairs.some(
-      (selectedPair) =>
-        selectedPair.departureDate === candidatePair.departureDate &&
-        selectedPair.returnDate === candidatePair.returnDate
-    );
-
-    if (!alreadySelected) {
-      selectedPairs.push(candidatePair);
-    }
-  }
-}
-
-function sumSegmentDurations(segments: SerpApiFlightSegment[]) {
-  return segments.reduce((total, segment) => total + (segment.duration ?? 0), 0);
-}
-
-function getLegDurationMinutes(segments: SerpApiFlightSegment[]) {
-  const firstSegment = segments[0];
-  const lastSegment = segments[segments.length - 1];
-  const departureTime = firstSegment?.departure_airport?.time;
-  const arrivalTime = lastSegment?.arrival_airport?.time;
-
-  if (departureTime && arrivalTime) {
-    const departure = new Date(departureTime);
-    const arrival = new Date(arrivalTime);
-
-    if (!Number.isNaN(departure.getTime()) && !Number.isNaN(arrival.getTime())) {
-      return Math.max(0, Math.round((arrival.getTime() - departure.getTime()) / (60 * 1000)));
-    }
-  }
-
-  return sumSegmentDurations(segments);
+function getLegDurationMinutes(
+  segments: SerpApiFlightSegment[],
+  layovers: NonNullable<SerpApiFlightResult["layovers"]>
+) {
+  return sumJourneyDurationMinutes(segments, layovers);
 }
 
 function getDate(dateTime?: string) {
@@ -824,25 +831,4 @@ function getDate(dateTime?: string) {
 
 function getTime(dateTime?: string) {
   return dateTime?.slice(11, 16) || undefined;
-}
-
-function parseDate(date: string) {
-  return new Date(`${date}T00:00:00.000Z`);
-}
-
-function addDays(date: Date, days: number) {
-  const nextDate = new Date(date);
-  nextDate.setUTCDate(nextDate.getUTCDate() + days);
-
-  return nextDate;
-}
-
-function differenceInDays(startDate: Date, endDate: Date) {
-  const millisecondsInDay = 24 * 60 * 60 * 1000;
-
-  return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / millisecondsInDay));
-}
-
-function formatDate(date: Date) {
-  return date.toISOString().slice(0, 10);
 }
