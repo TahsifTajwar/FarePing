@@ -2,6 +2,7 @@
 
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
+import { apiUrl } from "../lib/api";
 
 type VerifiedPrice = {
   totalPrice: number;
@@ -32,7 +33,7 @@ export function VerifiedPriceAction({
     setError("");
 
     try {
-      const response = await fetch("http://localhost:4000/api/flights/booking-price", {
+      const response = await fetch(apiUrl("/api/flights/booking-price"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookingTokens })

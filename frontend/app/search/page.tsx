@@ -7,6 +7,7 @@ import { Bell, MessageCircle, Plane, Search, Sparkles } from "lucide-react";
 import { AuthPanel } from "../components/AuthPanel";
 import { BackButton } from "../components/BackButton";
 import { authFetch } from "../components/authClient";
+import { apiUrl } from "../lib/api";
 import {
   currentResultsStorageKey,
   type CurrentResultsSession,
@@ -788,7 +789,7 @@ export default function Home() {
     setAirportSelectionQueue([]);
 
     try {
-      const response = await fetch("http://localhost:4000/api/trip-assistant/message", {
+      const response = await fetch(apiUrl("/api/trip-assistant/message"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -869,65 +870,6 @@ export default function Home() {
     setShowManualForm(false);
   }
 
-  function formatDuration(totalMinutes: number | null) {
-    if (!totalMinutes) {
-      return "Duration unavailable";
-    }
-
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  }
-
-  function formatStops(stops: number) {
-    if (stops === 0) {
-      return "Nonstop";
-    }
-
-    if (stops === 1) {
-      return "1 stop";
-    }
-
-    return `${stops} stops`;
-  }
-
-  function formatShortDate(date: string) {
-    const parsedDate = new Date(`${date}T00:00:00`);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      return date;
-    }
-
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric"
-    }).format(parsedDate);
-  }
-
-  function getItineraryRoute(itinerary: Itinerary) {
-    const firstLeg = itinerary.legs[0];
-    const lastLeg = itinerary.legs[itinerary.legs.length - 1];
-
-    if (!firstLeg || !lastLeg) {
-      return "Route unavailable";
-    }
-
-    if (itinerary.type === "ONE_WAY") {
-      return `${firstLeg.originAirport} to ${firstLeg.destinationAirport}`;
-    }
-
-    return `${firstLeg.originAirport} to ${firstLeg.destinationAirport}, then back`;
-  }
-
-  function getAirlineSummary(itinerary: Itinerary) {
-    return [...new Set(itinerary.legs.map((leg) => leg.airline))].join(" + ");
-  }
-
-  function getTotalStops(itinerary: Itinerary) {
-    return Math.max(...itinerary.legs.map((leg) => leg.stops), 0);
-  }
-
   async function runFlightSearch() {
     setLoading(true);
     setError("");
@@ -936,7 +878,7 @@ export default function Home() {
     const requestBody = buildSearchRequestBody();
 
     try {
-      const response = await fetch("http://localhost:4000/api/flights/search", {
+      const response = await fetch(apiUrl("/api/flights/search"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -981,7 +923,7 @@ export default function Home() {
         ...(results.length > 0 ? { currentResults: results } : {})
       };
 
-      const response = await authFetch("http://localhost:4000/api/saved-searches", {
+      const response = await authFetch(apiUrl("/api/saved-searches"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

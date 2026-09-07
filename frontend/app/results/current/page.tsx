@@ -11,6 +11,7 @@ import {
   currentResultsStorageKey,
   type CurrentResultsSession
 } from "../../components/currentFlightTypes";
+import { apiUrl } from "../../lib/api";
 
 type AirportMatch = {
   iataCode: string;
@@ -64,7 +65,7 @@ export default function CurrentResultsPage() {
             q: airportCode,
             limit: "1"
           });
-          const response = await fetch(`http://localhost:4000/api/airports/resolve?${query}`);
+          const response = await fetch(apiUrl(`/api/airports/resolve?${query}`));
 
           if (!response.ok) {
             return [airportCode, airportCode] as const;
@@ -135,7 +136,7 @@ export default function CurrentResultsPage() {
     setError("");
 
     try {
-      const response = await authFetch("http://localhost:4000/api/saved-searches", {
+      const response = await authFetch(apiUrl("/api/saved-searches"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

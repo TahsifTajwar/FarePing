@@ -4,7 +4,6 @@ import { env } from "../config/env.js";
 import { prisma } from "../db/prisma.js";
 import { type AuthenticatedRequest, requireAuth } from "../middleware/auth.js";
 import {
-  checkAllActiveSavedSearches,
   checkSavedSearch,
   saveSearchResultBatch
 } from "../services/savedSearchChecker.js";
@@ -243,12 +242,6 @@ type CreateSavedSearchInput = z.infer<typeof savedSearchSchema> & {
   currentResults?: z.infer<typeof currentResultSchema>[];
 };
 
-savedSearchesRouter.post("/check-all", async (_req, res) => {
-  const checkSummary = await checkAllActiveSavedSearches();
-
-  res.status(201).json(checkSummary);
-});
-
 savedSearchesRouter.use(requireAuth);
 
 savedSearchesRouter.post("/", async (req, res) => {
@@ -337,7 +330,10 @@ savedSearchesRouter.post("/:id/check", async (req, res) => {
     return;
   }
 
-  const { resultBatch, notificationDecision } = await checkSavedSearch(savedSearch, env.FLIGHT_PROVIDER);
+  const { resultBatch, notificationDecision } = await checkSavedSearch(
+    savedSearch,
+    env.SCHEDULED_FLIGHT_PROVIDER
+  );
 
   res.status(201).json({
     resultBatch,

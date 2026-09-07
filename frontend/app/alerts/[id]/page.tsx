@@ -17,6 +17,7 @@ import {
   type SavedResultBatch,
   type SavedSearch
 } from "../../components/savedFlightTypes";
+import { apiUrl } from "../../lib/api";
 
 type AirportMatch = {
   iataCode: string;
@@ -28,8 +29,8 @@ type AirportMatch = {
 };
 
 type HealthResponse = {
-  flightProvider: "mock" | "amadeus" | "serpapi";
-  scheduledFlightProvider: "mock" | "amadeus" | "serpapi";
+  flightProvider: "mock" | "serpapi";
+  scheduledFlightProvider: "mock" | "serpapi";
 };
 
 export default function AlertDetailPage() {
@@ -45,9 +46,9 @@ export default function AlertDetailPage() {
   const [error, setError] = useState("");
   const [checkMessage, setCheckMessage] = useState("");
   const [expandedItineraryIds, setExpandedItineraryIds] = useState<string[]>([]);
-  const [flightProvider, setFlightProvider] = useState<HealthResponse["flightProvider"] | null>(
-    null
-  );
+  const [scheduledFlightProvider, setScheduledFlightProvider] = useState<
+    HealthResponse["scheduledFlightProvider"] | null
+  >(null);
 
   useEffect(() => {
     void fetchSavedSearch();
@@ -56,15 +57,15 @@ export default function AlertDetailPage() {
 
   async function fetchBackendHealth() {
     try {
-      const response = await fetch("http://localhost:4000/api/health");
+      const response = await fetch(apiUrl("/api/health"));
       const data = await readJsonResponse<HealthResponse>(
         response,
         "Could not read backend provider status."
       );
 
-      setFlightProvider(data.flightProvider);
+      setScheduledFlightProvider(data.scheduledFlightProvider);
     } catch {
-      setFlightProvider(null);
+      setScheduledFlightProvider(null);
     }
   }
 
@@ -73,7 +74,7 @@ export default function AlertDetailPage() {
     setError("");
 
     try {
-      const response = await authFetch(`http://localhost:4000/api/saved-searches/${savedSearchId}`);
+      const response = await authFetch(apiUrl(`/api/saved-searches/${savedSearchId}`));
       const data = await readJsonResponse<{ savedSearch: SavedSearch }>(
         response,
         "Could not load this alert."
@@ -94,7 +95,7 @@ export default function AlertDetailPage() {
   }
 
   async function handleCheckNow() {
-    if (flightProvider === "serpapi") {
+    if (scheduledFlightProvider === "serpapi") {
       const shouldRunLiveCheck = window.confirm(
         "This will run a live SerpAPI flight check and may use API credits. Continue?"
       );
@@ -110,7 +111,7 @@ export default function AlertDetailPage() {
 
     try {
       const response = await authFetch(
-        `http://localhost:4000/api/saved-searches/${savedSearchId}/check`,
+        apiUrl(`/api/saved-searches/${savedSearchId}/check`),
         {
           method: "POST"
         }
@@ -196,7 +197,7 @@ export default function AlertDetailPage() {
             q: airportCode,
             limit: "1"
           });
-          const response = await fetch(`http://localhost:4000/api/airports/resolve?${query}`);
+          const response = await fetch(apiUrl(`/api/airports/resolve?${query}`));
 
           if (!response.ok) {
             return null;
@@ -383,11 +384,11 @@ export default function AlertDetailPage() {
                 <RefreshCw size={17} aria-hidden="true" />
                 {checking
                   ? "Checking..."
-                  : flightProvider === "serpapi"
+                  : scheduledFlightProvider === "serpapi"
                     ? "Live check again"
                     : "Check again"}
               </button>
-              {flightProvider === "serpapi" ? (
+              {scheduledFlightProvider === "serpapi" ? (
                 <p className="mt-2 text-center text-xs font-medium text-amber-100 lg:max-w-52">
                   Uses live SerpAPI credits when clicked.
                 </p>

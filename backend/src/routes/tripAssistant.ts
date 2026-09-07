@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { openAiConfigured } from "../config/env.js";
+import { tripAssistantRateLimit } from "../middleware/rateLimit.js";
 import { getTripAssistantReply } from "../services/tripAssistant.js";
 
 export const tripAssistantRouter = Router();
@@ -34,7 +35,7 @@ const tripAssistantRequestSchema = z.object({
   conversation: z.array(tripAssistantMessageSchema).max(20).optional()
 });
 
-tripAssistantRouter.post("/message", async (req, res) => {
+tripAssistantRouter.post("/message", tripAssistantRateLimit, async (req, res) => {
   try {
     if (!openAiConfigured) {
       res.status(503).json({

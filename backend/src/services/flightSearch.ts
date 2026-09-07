@@ -1,5 +1,4 @@
 import { env } from "../config/env.js";
-import { amadeusFlightProvider } from "./flightProviders/amadeusFlightProvider.js";
 import { mockFlightProvider } from "./flightProviders/mockFlightProvider.js";
 import { serpApiFlightProvider } from "./flightProviders/serpApiFlightProvider.js";
 import {
@@ -14,7 +13,6 @@ import {
 } from "./flightScoring.js";
 
 const providers: Record<string, FlightProvider> = {
-  amadeus: amadeusFlightProvider,
   mock: mockFlightProvider,
   serpapi: serpApiFlightProvider
 };

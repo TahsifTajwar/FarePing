@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { bookingPriceRateLimit, flightSearchRateLimit } from "../middleware/rateLimit.js";
 import { searchFlightsWithDiagnostics } from "../services/flightSearch.js";
 import { verifySerpApiBookingPrice } from "../services/flightProviders/serpApiFlightProvider.js";
 
@@ -125,7 +126,7 @@ const bookingPriceSchema = z.object({
   bookingTokens: z.array(z.string().min(20).max(5000)).min(1).max(2)
 });
 
-flightsRouter.post("/booking-price", async (req, res) => {
+flightsRouter.post("/booking-price", bookingPriceRateLimit, async (req, res) => {
   const parsedInput = bookingPriceSchema.safeParse(req.body);
 
   if (!parsedInput.success) {
@@ -142,7 +143,7 @@ flightsRouter.post("/booking-price", async (req, res) => {
   }
 });
 
-flightsRouter.post("/search", async (req, res) => {
+flightsRouter.post("/search", flightSearchRateLimit, async (req, res) => {
   const parsedSearch = flightSearchSchema.safeParse(req.body);
 
   if (!parsedSearch.success) {

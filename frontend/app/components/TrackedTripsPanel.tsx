@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, Pencil, Save, X } from "lucide-react";
 import { authFetch } from "./authClient";
+import { apiUrl } from "../lib/api";
 import {
   type TripType,
   type SavedResultBatch,
@@ -56,7 +57,7 @@ export function TrackedTripsPanel() {
 
   async function fetchSavedSearches() {
     try {
-      const response = await authFetch("http://localhost:4000/api/saved-searches");
+      const response = await authFetch(apiUrl("/api/saved-searches"));
 
       if (!response.ok) {
         throw new Error("Could not load saved flight alerts.");
@@ -96,7 +97,7 @@ export function TrackedTripsPanel() {
             q: airportCode,
             limit: "1"
           });
-          const response = await fetch(`http://localhost:4000/api/airports/resolve?${query}`);
+          const response = await fetch(apiUrl(`/api/airports/resolve?${query}`));
 
           if (!response.ok) {
             return null;
@@ -430,7 +431,7 @@ export function TrackedTripsPanel() {
 
     try {
       const response = await authFetch(
-        `http://localhost:4000/api/saved-searches/${savedSearchId}/details`,
+        apiUrl(`/api/saved-searches/${savedSearchId}/details`),
         {
           method: "PATCH",
           headers: {
@@ -481,7 +482,7 @@ export function TrackedTripsPanel() {
     setError("");
 
     try {
-      const response = await authFetch(`http://localhost:4000/api/saved-searches/${savedSearch.id}`, {
+      const response = await authFetch(apiUrl(`/api/saved-searches/${savedSearch.id}`), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json"
@@ -526,7 +527,7 @@ export function TrackedTripsPanel() {
     setError("");
 
     try {
-      const response = await authFetch(`http://localhost:4000/api/saved-searches/${savedSearch.id}`, {
+      const response = await authFetch(apiUrl(`/api/saved-searches/${savedSearch.id}`), {
         method: "DELETE"
       });
 

@@ -10,6 +10,10 @@ import { tripAssistantRouter } from "./routes/tripAssistant.js";
 
 export const app = express();
 
+if (env.TRUST_PROXY_HOPS > 0) {
+  app.set("trust proxy", env.TRUST_PROXY_HOPS);
+}
+
 app.use(cors({ origin: env.FRONTEND_ORIGIN }));
 app.use(express.json());
 

@@ -2,13 +2,14 @@
 
 FarePing is a flight price watcher for flexible travelers. Users save trip rules, the backend checks flight data on a schedule, and the app sends SMS alerts when a useful deal appears.
 
-## Planned MVP
+## Current MVP
 
-- Search flight offers from one flight API.
+- Search and rank live Google Flights results through SerpAPI.
 - Save flexible flight searches.
 - Store saved searches and price history in PostgreSQL.
-- Check saved searches on a schedule.
+- Check saved searches from a dedicated scheduler process.
 - Send text message alerts when prices match the user's target.
+- Verify the current seller price before booking or notifying.
 
 ## Project Structure
 
@@ -26,30 +27,13 @@ npm run dev
 
 Copy `backend/.env.example` to `backend/.env` before connecting real flight data, PostgreSQL, or SMS credentials.
 
+Copy `frontend/.env.example` to `frontend/.env.local`. Set `NEXT_PUBLIC_API_URL` to the public backend origin when the frontend and backend are deployed separately.
+
 ## Flight Providers
 
-FarePing routes flight searches through a provider layer. The app uses the mock provider by default:
+FarePing supports mock data for development and SerpAPI Google Flights for live searches. Manual searches use `FLIGHT_PROVIDER`. Scheduled saved-search checks use `SCHEDULED_FLIGHT_PROVIDER`, which should stay `mock` during paid API testing.
 
-```env
-FLIGHT_PROVIDER=mock
-```
-
-Later, real providers like Amadeus can be added behind the same search interface without changing the frontend, saved-search checks, scoring, or SMS alert flow.
-
-Manual searches use `FLIGHT_PROVIDER`. Scheduled saved-search checks use `SCHEDULED_FLIGHT_PROVIDER`, which should stay `mock` during paid API testing unless you intentionally want the cron job to spend real API credits.
-
-To test Amadeus instead of mock data, create an Amadeus Self-Service test app and set:
-
-```env
-FLIGHT_PROVIDER=amadeus
-AMADEUS_BASE_URL=https://test.api.amadeus.com
-AMADEUS_CLIENT_ID=
-AMADEUS_CLIENT_SECRET=
-```
-
-The first Amadeus provider searches exact dates only. For round trips, it checks one normal round-trip result set and separate outbound/return one-way result sets so FarePing can compare split one-way tickets.
-
-To test SerpApi Google Flights results:
+To use live SerpAPI Google Flights results:
 
 ```env
 FLIGHT_PROVIDER=serpapi
@@ -59,7 +43,19 @@ SERPAPI_API_KEY=
 MAX_SERPAPI_DATE_PAIRS=3
 ```
 
-The SerpApi provider passes multiple origin/destination airports as comma-separated Google Flights parameters. For round trips, it checks a limited set of date pairs inside the user's date window, then also checks outbound and return one-way results for each date pair so FarePing can compare split one-way tickets. Keep `MAX_SERPAPI_DATE_PAIRS` low during testing because each round-trip date pair can require several SerpApi calls.
+The SerpAPI provider samples date pairs inside the user's permitted window and can compare normal round trips with split one-way tickets. The backend calculates a request budget before searching and rejects plans above `MAX_SERPAPI_REQUESTS_PER_SEARCH`.
+
+Paid SerpAPI and OpenAI routes are rate limited per client IP. Configure the window and endpoint limits with `RATE_LIMIT_WINDOW_MINUTES`, `FLIGHT_SEARCH_RATE_LIMIT`, `BOOKING_PRICE_RATE_LIMIT`, and `TRIP_ASSISTANT_RATE_LIMIT`. Set `TRUST_PROXY_HOPS` to the number of trusted reverse proxies in production.
+
+## Scheduled Worker
+
+The API process does not run scheduled searches. Start exactly one worker process when scheduled alert checks are ready:
+
+```bash
+npm run dev:worker
+```
+
+In production, run `npm run start:worker -w backend` as a separate service. One worker prevents API replicas from duplicating scheduled searches and paid provider requests.
 
 ## SMS Setup
 
