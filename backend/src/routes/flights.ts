@@ -115,8 +115,6 @@ const flightSearchSchema = z
     }
   });
 
-type FlightSearch = z.infer<typeof flightSearchSchema>;
-
 const bookingPriceSchema = z.object({
   bookingTokens: z.array(z.string().min(20).max(5000)).min(1).max(2)
 });
