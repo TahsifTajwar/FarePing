@@ -203,7 +203,12 @@ export function NightGlobeScene() {
     const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
     camera.position.set(0, 0, 8.4);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: "high-performance",
+      preserveDrawingBuffer: process.env.NODE_ENV !== "production"
+    });
     renderer.setClearColor(0x050a0d, 1);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -297,12 +302,22 @@ export function NightGlobeScene() {
 
     const routeCurves: FlightArcCurve[] = [];
     const routePlanes: THREE.Mesh[] = [];
+    const routePositions: THREE.Vector3[] = [];
+    const routeTangents: THREE.Vector3[] = [];
+    const routeSurfaceNormals: THREE.Vector3[] = [];
+    const routeWingAxes: THREE.Vector3[] = [];
+    const routeOrientations: THREE.Matrix4[] = [];
     const planeGeometry = createPlaneGeometry();
     routes.forEach((route) => {
       const start = spherePoint(route.from[0], route.from[1], 2.49);
       const end = spherePoint(route.to[0], route.to[1], 2.49);
       const curve = new FlightArcCurve(start, end);
       routeCurves.push(curve);
+      routePositions.push(new THREE.Vector3());
+      routeTangents.push(new THREE.Vector3());
+      routeSurfaceNormals.push(new THREE.Vector3());
+      routeWingAxes.push(new THREE.Vector3());
+      routeOrientations.push(new THREE.Matrix4());
 
       const line = new THREE.Mesh(
         new THREE.TubeGeometry(curve, 72, 0.009, 6, false),
@@ -367,6 +382,7 @@ export function NightGlobeScene() {
     let previousPointerY = 0;
     let frame = 0;
     let animationFrame = 0;
+    let globeIsVisible = true;
     const clock = new THREE.Clock();
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -450,11 +466,11 @@ export function NightGlobeScene() {
         const route = plane.userData as Route;
         const progress = reduceMotion ? route.offset : (elapsed * route.speed + route.offset) % 1;
         const curve = routeCurves[index];
-        const position = curve.getPointAt(progress);
-        const tangent = curve.getTangentAt(progress).normalize();
-        const surfaceNormal = position.clone().normalize();
-        const wingAxis = surfaceNormal.clone().cross(tangent).normalize();
-        const orientation = new THREE.Matrix4().makeBasis(tangent, wingAxis, surfaceNormal);
+        const position = curve.getPointAt(progress, routePositions[index]);
+        const tangent = curve.getTangentAt(progress, routeTangents[index]).normalize();
+        const surfaceNormal = routeSurfaceNormals[index].copy(position).normalize();
+        const wingAxis = routeWingAxes[index].copy(surfaceNormal).cross(tangent).normalize();
+        const orientation = routeOrientations[index].makeBasis(tangent, wingAxis, surfaceNormal);
 
         plane.position.copy(position);
         plane.quaternion.setFromRotationMatrix(orientation);
@@ -463,8 +479,37 @@ export function NightGlobeScene() {
       });
 
       renderer.render(scene, camera);
-      animationFrame = window.requestAnimationFrame(render);
+      if (document.visibilityState === "visible" && globeIsVisible) {
+        animationFrame = window.requestAnimationFrame(render);
+      } else {
+        animationFrame = 0;
+      }
     };
+
+    const resumeRendering = () => {
+      if (document.visibilityState === "visible" && globeIsVisible && animationFrame === 0) {
+        animationFrame = window.requestAnimationFrame(render);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        resumeRendering();
+      } else if (animationFrame !== 0) {
+        window.cancelAnimationFrame(animationFrame);
+        animationFrame = 0;
+      }
+    };
+
+    const visibilityObserver = new IntersectionObserver(([entry]) => {
+      globeIsVisible = entry.isIntersecting;
+      if (globeIsVisible) {
+        resumeRendering();
+      } else if (animationFrame !== 0) {
+        window.cancelAnimationFrame(animationFrame);
+        animationFrame = 0;
+      }
+    });
 
     resize();
     render();
@@ -473,6 +518,8 @@ export function NightGlobeScene() {
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointercancel", handlePointerUp);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    visibilityObserver.observe(host);
 
     return () => {
       window.cancelAnimationFrame(animationFrame);
@@ -481,6 +528,8 @@ export function NightGlobeScene() {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      visibilityObserver.disconnect();
       document.body.classList.remove("fareping-globe-dragging");
       const geometries = new Set<THREE.BufferGeometry>();
       const materials = new Set<THREE.Material>();
