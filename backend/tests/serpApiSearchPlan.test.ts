@@ -46,6 +46,24 @@ test("round-trip sampling never includes departures after latest departure", () 
   assert.equal(pairs.at(-1)?.departureDate, "2027-01-03");
 });
 
+test("round-trip planning derives the departure ceiling when latest departure is omitted", () => {
+  const pairs = buildRoundTripDatePairs(
+    {
+      ...baseSearch,
+      earliestDepartDate: "2027-01-01",
+      latestDepartDate: undefined,
+      latestReturnDate: "2027-01-10",
+      minTripDays: 4,
+      maxTripDays: 4
+    },
+    10
+  );
+
+  assert.equal(pairs.at(-1)?.departureDate, "2027-01-06");
+  assert.equal(pairs.at(-1)?.returnDate, "2027-01-10");
+  assert.ok(pairs.every((pair) => pair.departureDate <= "2027-01-06"));
+});
+
 test("round-trip sampling covers early, middle, and late departure dates", () => {
   const pairs = buildRoundTripDatePairs(
     {

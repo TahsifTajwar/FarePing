@@ -36,14 +36,6 @@ const flightSearchSchema = z
       return;
     }
 
-    if (!search.latestDepartDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "latestDepartDate is required for round-trip searches.",
-        path: ["latestDepartDate"]
-      });
-    }
-
     if (!search.latestReturnDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -72,11 +64,14 @@ const flightSearchSchema = z
       });
     }
 
-    if (!search.latestDepartDate || !search.latestReturnDate || !search.minTripDays) {
+    if (!search.latestReturnDate) {
       return;
     }
 
-    if (getDayDifference(search.latestDepartDate, search.latestReturnDate) <= 0) {
+    if (
+      search.latestDepartDate &&
+      getDayDifference(search.latestDepartDate, search.latestReturnDate) <= 0
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "latestDepartDate must be before latestReturnDate.",
@@ -95,7 +90,7 @@ const flightSearchSchema = z
       return;
     }
 
-    if (search.minTripDays > availableTripDays) {
+    if (search.minTripDays && search.minTripDays > availableTripDays) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `minTripDays cannot be more than ${availableTripDays} for this date window.`,
@@ -103,7 +98,7 @@ const flightSearchSchema = z
       });
     }
 
-    if (search.maxTripDays && search.maxTripDays < search.minTripDays) {
+    if (search.maxTripDays && search.minTripDays && search.maxTripDays < search.minTripDays) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "maxTripDays cannot be less than minTripDays.",

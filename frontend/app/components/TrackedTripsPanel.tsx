@@ -1,9 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ArrowRight, Pencil, Save, X } from "lucide-react";
-import { authFetch } from "./authClient";
+import { useCallback, useEffect, useState } from "react";
+import {
+  ArrowRight,
+  BellRing,
+  CalendarDays,
+  Clock3,
+  DollarSign,
+  Pause,
+  Pencil,
+  Play,
+  Save,
+  Trash2,
+  X
+} from "lucide-react";
+import { authFetch, authSessionChangedEvent } from "./authClient";
 import { apiUrl } from "../lib/api";
 import {
   type TripType,
@@ -35,8 +47,21 @@ type EditSearchForm = {
   maxStops: string;
 };
 
+function buildLatestResultBatchMap(savedSearchesWithResults: SavedSearch[]) {
+  return savedSearchesWithResults.reduce<Record<string, SavedResultBatch>>(
+    (latestResults, savedSearch) => {
+      const latestBatch = savedSearch.resultBatches?.[0];
+
+      if (latestBatch) latestResults[savedSearch.id] = latestBatch;
+      return latestResults;
+    },
+    {}
+  );
+}
+
 export function TrackedTripsPanel() {
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [loading, setLoading] = useState(true);
   const [updatingSearchId, setUpdatingSearchId] = useState("");
   const [deletingSearchId, setDeletingSearchId] = useState("");
   const [editingSearchId, setEditingSearchId] = useState("");
@@ -51,32 +76,7 @@ export function TrackedTripsPanel() {
     Record<string, SavedResultBatch>
   >({});
 
-  useEffect(() => {
-    void fetchSavedSearches();
-  }, []);
-
-  async function fetchSavedSearches() {
-    try {
-      const response = await authFetch(apiUrl("/api/saved-searches"));
-
-      if (!response.ok) {
-        throw new Error("Could not load saved flight alerts.");
-      }
-
-      const data = (await response.json()) as { savedSearches: SavedSearch[] };
-      setSavedSearches(data.savedSearches);
-      setResultBatchesBySearchId(buildLatestResultBatchMap(data.savedSearches));
-      void fetchAirportDetails(data.savedSearches);
-    } catch (savedSearchError) {
-      setError(
-        savedSearchError instanceof Error
-          ? savedSearchError.message
-          : "Something went wrong while loading saved flight alerts."
-      );
-    }
-  }
-
-  async function fetchAirportDetails(savedSearchesWithCodes: SavedSearch[]) {
+  const fetchAirportDetails = useCallback(async (savedSearchesWithCodes: SavedSearch[]) => {
     const airportCodes = [
       ...new Set(
         savedSearchesWithCodes.flatMap((savedSearch) => [
@@ -84,7 +84,7 @@ export function TrackedTripsPanel() {
           ...savedSearch.destinationAirports
         ])
       )
-    ].filter((airportCode) => !airportDetailsByCode[airportCode]);
+    ];
 
     if (airportCodes.length === 0) {
       return;
@@ -125,22 +125,40 @@ export function TrackedTripsPanel() {
 
       return nextDetails;
     });
-  }
+  }, []);
 
-  function buildLatestResultBatchMap(savedSearchesWithResults: SavedSearch[]) {
-    return savedSearchesWithResults.reduce<Record<string, SavedResultBatch>>(
-      (latestResults, savedSearch) => {
-        const latestBatch = savedSearch.resultBatches?.[0];
+  const fetchSavedSearches = useCallback(async () => {
+    setLoading(true);
+    setError("");
 
-        if (latestBatch) {
-          latestResults[savedSearch.id] = latestBatch;
-        }
+    try {
+      const response = await authFetch(apiUrl("/api/saved-searches"));
 
-        return latestResults;
-      },
-      {}
-    );
-  }
+      if (!response.ok) throw new Error("Could not load saved flight alerts.");
+
+      const data = (await response.json()) as { savedSearches: SavedSearch[] };
+      setSavedSearches(data.savedSearches);
+      setResultBatchesBySearchId(buildLatestResultBatchMap(data.savedSearches));
+      void fetchAirportDetails(data.savedSearches);
+    } catch (savedSearchError) {
+      setError(
+        savedSearchError instanceof Error
+          ? savedSearchError.message
+          : "Something went wrong while loading saved flight alerts."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchAirportDetails]);
+
+  useEffect(() => {
+    void fetchSavedSearches();
+
+    const refreshAfterSignIn = () => void fetchSavedSearches();
+    window.addEventListener(authSessionChangedEvent, refreshAfterSignIn);
+
+    return () => window.removeEventListener(authSessionChangedEvent, refreshAfterSignIn);
+  }, [fetchSavedSearches]);
 
   function formatDisplayDate(date: string | null) {
     if (!date) {
@@ -204,9 +222,13 @@ export function TrackedTripsPanel() {
         : formatDisplayDate(savedSearch.earliestDepartDate);
     }
 
-    return `${formatDisplayDate(savedSearch.earliestDepartDate)} - ${formatDisplayDate(
-      savedSearch.latestDepartDate
-    )}, return ${savedSearch.earliestReturnDate ? `from ${formatDisplayDate(savedSearch.earliestReturnDate)} ` : ""}by ${formatDisplayDate(savedSearch.latestReturnDate)}`;
+    const departureWindow = savedSearch.latestDepartDate
+      ? `${formatDisplayDate(savedSearch.earliestDepartDate)} - ${formatDisplayDate(
+          savedSearch.latestDepartDate
+        )}`
+      : `From ${formatDisplayDate(savedSearch.earliestDepartDate)}`;
+
+    return `${departureWindow}, return ${savedSearch.earliestReturnDate ? `from ${formatDisplayDate(savedSearch.earliestReturnDate)} ` : ""}by ${formatDisplayDate(savedSearch.latestReturnDate)}`;
   }
 
   function formatStay(savedSearch: SavedSearch) {
@@ -365,10 +387,6 @@ export function TrackedTripsPanel() {
     }
 
     if (editForm.tripType === "ROUND_TRIP") {
-      if (!editForm.latestDepartDate) {
-        return "Choose a latest departure date for this round trip.";
-      }
-
       if (!editForm.latestReturnDate) {
         return "Choose a latest return date for this round trip.";
       }
@@ -380,7 +398,10 @@ export function TrackedTripsPanel() {
         return "Earliest return cannot be after latest return.";
       }
 
-      if (getDayDifference(editForm.latestDepartDate, editForm.latestReturnDate) <= 0) {
+      if (
+        editForm.latestDepartDate &&
+        getDayDifference(editForm.latestDepartDate, editForm.latestReturnDate) <= 0
+      ) {
         return "Latest departure must be before latest return.";
       }
 
@@ -555,150 +576,173 @@ export function TrackedTripsPanel() {
   }
 
   return (
-    <section className="grid gap-4">
+    <section className="grid gap-4" data-testid="tracked-trips-panel">
       {error ? (
-        <p className="rounded-md bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
+        <p className="rounded-md border border-[#ffaaa2]/20 bg-[#351615]/90 px-4 py-3 text-sm font-medium text-[#ffc6c1]">
           {error}
         </p>
       ) : null}
 
       {editMessage ? (
-        <p className="rounded-md bg-emerald-100 px-4 py-3 text-sm font-medium text-emerald-900">
+        <p className="rounded-md border border-[#9ff3d0]/20 bg-[#9ff3d0]/[0.08] px-4 py-3 text-sm font-medium text-[#c9f8e4]">
           {editMessage}
         </p>
       ) : null}
 
-      {savedSearches.length === 0 ? (
-        <div className="rounded-lg border border-white/15 bg-white/[0.07] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.32)] backdrop-blur-xl">
-          <p className="font-semibold">No tracked trips yet.</p>
-          <p className="mt-2 text-sm leading-6 text-slate-300">
+      {loading ? (
+        <div className="border-y border-white/10 bg-black/15 px-4 py-8 text-sm text-white/55">
+          Loading tracked trips...
+        </div>
+      ) : null}
+
+      {!loading && !error && savedSearches.length === 0 ? (
+        <div className="rounded-md border border-white/10 bg-[#081210]/82 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+          <BellRing className="text-[#9ff3d0]" size={22} aria-hidden="true" />
+          <p className="mt-4 font-semibold">No tracked trips yet.</p>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-white/48">
             Create a search first, then turn alerts on after FarePing shows current flight options.
           </p>
         </div>
-      ) : (
+      ) : !loading ? (
         <div className="grid gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-y border-white/10 bg-black/15 px-3 py-3 text-xs font-semibold text-white/48">
+            <span>{savedSearches.length} tracked trip{savedSearches.length === 1 ? "" : "s"}</span>
+            <span>{savedSearches.filter((search) => search.active).length} actively watching</span>
+          </div>
+
           {savedSearches.map((savedSearch) => {
             const latestBatch = resultBatchesBySearchId[savedSearch.id];
 
             return (
               <article
-                className="overflow-hidden rounded-lg border border-cyan-100/15 bg-[#07111f]/88 shadow-[0_24px_70px_rgba(0,0,0,0.36)] backdrop-blur-xl transition hover:border-cyan-100/30"
+                className="fareping-result-in overflow-hidden rounded-md border border-white/10 bg-[#081210]/88 shadow-[0_20px_70px_rgba(0,0,0,0.28)] backdrop-blur-xl transition hover:border-[#9ff3d0]/30"
+                data-testid="tracked-trip"
                 key={savedSearch.id}
               >
-                <div className="grid gap-6 p-5">
-                  <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-start">
-                    <div>
+                <div className="grid lg:grid-cols-[minmax(0,1fr)_15rem]">
+                  <div className="min-w-0 p-4 sm:p-5">
+                    <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                      <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-medium text-[#07111f]">
+                        <span className="rounded bg-[#9ff3d0] px-2.5 py-1 text-[11px] font-bold text-[#07110f]">
                           {savedSearch.tripType === "ROUND_TRIP" ? "Round trip" : "One way"}
                         </span>
                         {!savedSearch.active ? (
-                          <span className="rounded-full border border-amber-200/30 bg-amber-200/10 px-3 py-1 text-xs font-medium text-amber-100">
+                          <span className="rounded border border-[#efc77e]/25 bg-[#efc77e]/[0.07] px-2.5 py-1 text-[11px] font-semibold text-[#f3d49a]">
                             Paused
                           </span>
                         ) : (
-                          <span className="rounded-full border border-emerald-200/25 bg-emerald-200/10 px-3 py-1 text-xs font-medium text-emerald-100">
+                          <span className="inline-flex items-center gap-1.5 rounded border border-[#9ff3d0]/20 bg-[#9ff3d0]/[0.06] px-2.5 py-1 text-[11px] font-semibold text-[#c9f8e4]">
+                            <span className="h-1.5 w-1.5 rounded-full bg-[#9ff3d0]" />
                             Watching
                           </span>
                         )}
                       </div>
-                      <h2 className="mt-4 text-3xl font-semibold tracking-normal">
+                      <h2 className="mt-3 truncate text-xl font-semibold" title={formatRouteTitle(savedSearch)}>
                         {formatRouteTitle(savedSearch)}
                       </h2>
-                      <p className="mt-2 text-sm font-medium text-slate-400">
-                        Airports: {formatAirportCodes(savedSearch.originAirports)} to{" "}
+                      <p className="mt-1 text-xs font-medium text-white/42">
+                        {formatAirportCodes(savedSearch.originAirports)} to{" "}
                         {formatAirportCodes(savedSearch.destinationAirports)}
                       </p>
                     </div>
 
-                    <div className="grid gap-3 lg:min-w-64">
-                      <Link
-                        className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-cyan-100 px-5 text-sm font-medium text-[#07111f] transition hover:bg-white"
-                        href={`/alerts/${savedSearch.id}`}
-                      >
-                        See flight options
-                        <ArrowRight size={17} aria-hidden="true" />
-                      </Link>
-                      <p className="text-center text-xs font-medium text-slate-500">
-                        Opens the full ranked list for this trip.
-                      </p>
+                      <div className="text-left sm:text-right">
+                        <p className="text-[10px] font-bold uppercase text-white/38">Latest fare</p>
+                        <p className="mt-1 text-2xl font-semibold text-[#c9f8e4]">
+                          {formatMoney(latestBatch?.bestPrice ?? null)}
+                        </p>
+                        <p className="mt-1 text-[11px] text-white/38">
+                          {latestBatch ? `Checked ${formatDisplayDate(latestBatch.checkedAt)}` : "Awaiting first check"}
+                        </p>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
-                    <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                      <p className="text-xs font-medium text-slate-500">Travel window</p>
-                      <p className="mt-2 font-medium">{formatDateRange(savedSearch)}</p>
+                    <div className="mt-5 grid gap-4 border-t border-white/10 pt-4 text-xs sm:grid-cols-[minmax(0,1.7fr)_minmax(7rem,0.7fr)_minmax(8rem,0.8fr)]">
+                    <div className="min-w-0">
+                      <p className="inline-flex items-center gap-2 font-bold uppercase text-white/35">
+                        <CalendarDays size={14} aria-hidden="true" />
+                        Travel window
+                      </p>
+                      <p className="mt-2 font-medium leading-5 text-white/72">{formatDateRange(savedSearch)}</p>
                     </div>
-                    <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                      <p className="text-xs font-medium text-slate-500">Stay</p>
-                      <p className="mt-2 font-medium">{formatStay(savedSearch)}</p>
+                    <div className="sm:border-l sm:border-white/10 sm:pl-4">
+                      <p className="inline-flex items-center gap-2 font-bold uppercase text-white/35">
+                        <Clock3 size={14} aria-hidden="true" />
+                        Stay
+                      </p>
+                      <p className="mt-2 font-medium text-white/72">{formatStay(savedSearch)}</p>
                     </div>
-                    <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                      <p className="text-xs font-medium text-slate-500">Budget</p>
-                      <p className="mt-2 font-medium">
+                    <div className="sm:border-l sm:border-white/10 sm:pl-4">
+                      <p className="inline-flex items-center gap-2 font-bold uppercase text-white/35">
+                        <DollarSign size={14} aria-hidden="true" />
+                        Budget
+                      </p>
+                      <p className="mt-2 font-medium text-white/72">
                         Up to ${savedSearch.maxPrice}
                       </p>
                     </div>
-                    <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                      <p className="text-xs font-medium text-slate-500">Best found</p>
-                      <p className="mt-2 font-medium text-cyan-100">
-                        {formatMoney(latestBatch?.bestPrice ?? null)}
-                      </p>
-                    </div>
-                    <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                      <p className="text-xs font-medium text-slate-500">Last checked</p>
-                      <p className="mt-2 font-medium">
-                        {latestBatch ? formatDisplayDate(latestBatch.checkedAt) : "Not checked yet"}
-                      </p>
                     </div>
                   </div>
 
-                  <div className="grid gap-2 border-t border-white/10 pt-4 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center">
-                    <p className="text-sm font-medium text-slate-300 sm:col-span-1">
+                  <div className="flex flex-col justify-between gap-3 border-t border-white/10 bg-black/20 p-4 lg:border-l lg:border-t-0 lg:p-5">
+                    <Link
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#9ff3d0] px-4 text-sm font-semibold text-[#07110f] transition hover:bg-white"
+                      href={`/alerts/${savedSearch.id}`}
+                    >
+                      View trip
+                      <ArrowRight size={16} aria-hidden="true" />
+                    </Link>
+
+                    <p className="text-center text-xs font-medium text-white/42">
                       {formatPhoneStatus(savedSearch.contactPhone)}
                     </p>
+
+                    <div className="grid grid-cols-3 gap-2 border-t border-white/10 pt-3">
                     <button
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-cyan-100/25 px-4 text-sm font-medium text-cyan-100 transition hover:bg-cyan-100 hover:text-[#07111f]"
+                      className="inline-flex h-9 items-center justify-center rounded-md border border-white/12 text-white/55 transition hover:border-[#9ff3d0]/35 hover:text-[#9ff3d0]"
                       onClick={() =>
                         editingSearchId === savedSearch.id
                           ? cancelEditingSavedSearch()
                           : startEditingSavedSearch(savedSearch)
                       }
                       type="button"
+                      title={editingSearchId === savedSearch.id ? "Close edit" : "Edit trip"}
                     >
                       {editingSearchId === savedSearch.id ? (
                         <X size={16} aria-hidden="true" />
                       ) : (
                         <Pencil size={16} aria-hidden="true" />
                       )}
-                      {editingSearchId === savedSearch.id ? "Close edit" : "Edit"}
+                      <span className="sr-only">{editingSearchId === savedSearch.id ? "Close edit" : "Edit trip"}</span>
                     </button>
                     <button
-                      className="inline-flex h-11 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-medium text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
+                      className="inline-flex h-9 items-center justify-center rounded-md border border-white/12 text-white/55 transition hover:border-[#efc77e]/35 hover:text-[#f3d49a] disabled:opacity-35"
                       disabled={updatingSearchId === savedSearch.id}
                       onClick={() => handleToggleSavedSearch(savedSearch)}
                       type="button"
+                      title={savedSearch.active ? "Pause alert" : "Resume alert"}
                     >
-                      {updatingSearchId === savedSearch.id
-                        ? "Updating..."
-                        : savedSearch.active
-                          ? "Pause"
-                          : "Resume"}
+                      {savedSearch.active ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
+                      <span className="sr-only">{updatingSearchId === savedSearch.id ? "Updating alert" : savedSearch.active ? "Pause alert" : "Resume alert"}</span>
                     </button>
                     <button
-                      className="inline-flex h-11 items-center justify-center rounded-md border border-red-200/35 px-3 text-sm font-medium text-red-100 transition hover:bg-red-200 hover:text-red-950 disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
+                      className="inline-flex h-9 items-center justify-center rounded-md border border-white/12 text-white/45 transition hover:border-[#ffaaa2]/35 hover:text-[#ffaaa2] disabled:opacity-35"
                       disabled={deletingSearchId === savedSearch.id}
                       onClick={() => handleDeleteSavedSearch(savedSearch)}
                       type="button"
+                      title="Delete alert"
                     >
-                      {deletingSearchId === savedSearch.id ? "Deleting..." : "Delete"}
+                      <Trash2 size={15} aria-hidden="true" />
+                      <span className="sr-only">{deletingSearchId === savedSearch.id ? "Deleting alert" : "Delete alert"}</span>
                     </button>
+                    </div>
                   </div>
 
                   {editingSearchId === savedSearch.id && editForm ? (
+                    <div className="border-t border-white/10 p-4 sm:p-5 lg:col-span-2">
                     <form
-                      className="grid gap-4 border-t border-white/10 pt-4"
+                      className="grid gap-4"
                       onSubmit={(event) => {
                         event.preventDefault();
                         void handleUpdateSavedSearchDetails(savedSearch.id);
@@ -706,8 +750,8 @@ export function TrackedTripsPanel() {
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                          <p className="text-sm font-semibold text-cyan-100">Edit alert details</p>
-                          <p className="mt-1 text-xs leading-5 text-slate-400">
+                          <p className="text-sm font-semibold text-[#9ff3d0]">Edit alert details</p>
+                          <p className="mt-1 text-xs leading-5 text-white/42">
                             Changes update what FarePing watches. Run a fresh check from the trip page afterward.
                           </p>
                         </div>
@@ -715,8 +759,8 @@ export function TrackedTripsPanel() {
                           <button
                             className={`h-9 rounded px-3 ${
                               editForm.tripType === "ROUND_TRIP"
-                                ? "bg-cyan-100 text-[#07111f]"
-                                : "text-slate-300"
+                                ? "bg-[#9ff3d0] text-[#07111f]"
+                                : "text-white/55"
                             }`}
                             onClick={() => updateEditForm("tripType", "ROUND_TRIP")}
                             type="button"
@@ -726,8 +770,8 @@ export function TrackedTripsPanel() {
                           <button
                             className={`h-9 rounded px-3 ${
                               editForm.tripType === "ONE_WAY"
-                                ? "bg-cyan-100 text-[#07111f]"
-                                : "text-slate-300"
+                                ? "bg-[#9ff3d0] text-[#07111f]"
+                                : "text-white/55"
                             }`}
                             onClick={() => updateEditForm("tripType", "ONE_WAY")}
                             type="button"
@@ -772,13 +816,12 @@ export function TrackedTripsPanel() {
                           />
                         </label>
                         <label className="grid gap-2 text-sm font-semibold">
-                          Latest departure{editForm.tripType === "ONE_WAY" ? " (optional)" : ""}
+                          Latest departure (optional)
                           <input
                             className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none focus:border-cyan-200"
                             onChange={(event) =>
                               updateEditForm("latestDepartDate", event.target.value)
                             }
-                            required={editForm.tripType === "ROUND_TRIP"}
                             type="date"
                             value={editForm.latestDepartDate}
                           />
@@ -867,7 +910,7 @@ export function TrackedTripsPanel() {
 
                       <div className="flex flex-col gap-2 sm:flex-row">
                         <button
-                          className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-cyan-100 px-4 text-sm font-bold text-[#07111f] transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white"
+                          className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#9ff3d0] px-4 text-sm font-bold text-[#07111f] transition hover:bg-white disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/45"
                           disabled={savingEditId === savedSearch.id}
                           type="submit"
                         >
@@ -875,7 +918,7 @@ export function TrackedTripsPanel() {
                           {savingEditId === savedSearch.id ? "Saving..." : "Save changes"}
                         </button>
                         <button
-                          className="inline-flex h-11 items-center justify-center rounded-md border border-white/15 px-4 text-sm font-bold text-slate-200 transition hover:bg-white/10"
+                          className="inline-flex h-11 items-center justify-center rounded-md border border-white/15 px-4 text-sm font-bold text-white/65 transition hover:bg-white/10"
                           onClick={cancelEditingSavedSearch}
                           type="button"
                         >
@@ -883,13 +926,14 @@ export function TrackedTripsPanel() {
                         </button>
                       </div>
                     </form>
+                    </div>
                   ) : null}
                 </div>
               </article>
             );
           })}
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

@@ -1,5 +1,4 @@
 import { env } from "../config/env.js";
-import { deriveLatestDepartDate } from "./tripDateRules.js";
 import { type AirportMatch, resolveAirports } from "./airportResolver.js";
 
 export type TripDraft = {
@@ -171,13 +170,7 @@ export async function getTripAssistantReply(input: TripAssistantInput): Promise<
     originAirports: normalizeAirportCodes(lunaResult.tripDraft.originAirports),
     destinationAirports: normalizeAirportCodes(lunaResult.tripDraft.destinationAirports)
   };
-  const normalizedTripDraft = shouldUseLatestFeasibleDeparture(
-    input.message,
-    tripDraft,
-    normalizedLunaTripDraft
-  )
-    ? deriveLatestDepartDate(normalizedLunaTripDraft)
-    : normalizedLunaTripDraft;
+  const normalizedTripDraft = normalizedLunaTripDraft;
   const missingFields = getMissingFields(normalizedTripDraft, originOptions, destinationOptions);
   const reply = getRuleBasedReply(lunaResult.reply, missingFields, input.message);
 
@@ -258,10 +251,6 @@ function getNextFlightQuestion(missingSearchFields: string[]) {
     return "What is the earliest date you can depart?";
   }
 
-  if (missingSearchFields.includes("latestDepartDate")) {
-    return "What is the latest date you can depart?";
-  }
-
   if (missingSearchFields.includes("latestReturnDate")) {
     return "What is the latest date you can return?";
   }
@@ -287,37 +276,6 @@ function getNextFlightQuestion(missingSearchFields: string[]) {
   }
 
   return null;
-}
-
-function shouldUseLatestFeasibleDeparture(
-  message: string,
-  previousDraft: TripDraft,
-  nextDraft: TripDraft
-) {
-  if (
-    nextDraft.tripType !== "ROUND_TRIP" ||
-    nextDraft.latestDepartDate ||
-    !nextDraft.earliestDepartDate ||
-    !nextDraft.latestReturnDate ||
-    !nextDraft.minTripDays
-  ) {
-    return false;
-  }
-
-  const normalizedMessage = normalizeChatMessage(message);
-  const explicitlySkipsLatestDeparture =
-    /\blatest (depart|departure)\b.*\b(skip|flexible|any|none|no preference)\b/.test(
-      normalizedMessage
-    );
-  const isAnsweringLatestDepartureQuestion =
-    previousDraft.tripType === "ROUND_TRIP" &&
-    !previousDraft.latestDepartDate &&
-    Boolean(previousDraft.earliestDepartDate) &&
-    Boolean(previousDraft.latestReturnDate) &&
-    Boolean(previousDraft.minTripDays) &&
-    /^(skip|flexible|any|none|no preference)$/.test(normalizedMessage);
-
-  return explicitlySkipsLatestDeparture || isAnsweringLatestDepartureQuestion;
 }
 
 function isSideMessage(message: string) {
@@ -389,10 +347,6 @@ function getMissingFields(
   }
 
   if (tripDraft.tripType === "ROUND_TRIP") {
-    if (!tripDraft.latestDepartDate) {
-      missingFields.push("latestDepartDate");
-    }
-
     if (!tripDraft.latestReturnDate) {
       missingFields.push("latestReturnDate");
     }
@@ -546,15 +500,14 @@ function buildSystemPrompt() {
     "Dates must be ISO date strings in YYYY-MM-DD format. If the user gives a month/day without a year, use the next upcoming matching date.",
     "Use ROUND_TRIP for round trips and ONE_WAY for one-way trips.",
     "For ONE_WAY searches, do not require return date, min stay days, or max stay days.",
-    "For ROUND_TRIP searches, collect earliest departure date, latest departure date, latest return date, min trip days, max trip days, and max price.",
+    "For ROUND_TRIP searches, collect earliest departure date, latest return date, min trip days, max trip days, and max price.",
     "For ROUND_TRIP searches, also ask for an optional earliest return date. This means the user does not want any return before that date.",
     "If the user skips earliest return or says they have no preference, keep earliestReturnDate null and set earliestReturnDateSkipped to true.",
     "If the user provides an earliest return date, set earliestReturnDateSkipped to false.",
-    "For ROUND_TRIP searches, latestDepartDate is the last acceptable day to begin the trip and must be before latestReturnDate.",
+    "For ROUND_TRIP searches, latestDepartDate is optional. If provided, it is the last acceptable day to begin the trip and must be before latestReturnDate.",
     "For a ROUND_TRIP, never copy earliestDepartDate into latestDepartDate merely to complete the search.",
     "When a user gives only two dates as a broad range such as 'from December 24 to January 31', treat them as earliestDepartDate and latestReturnDate.",
-    "Do not derive latestDepartDate merely because latestReturnDate and minTripDays are known. Ask the user for their latest acceptable departure date.",
-    "If the user explicitly answers skip, flexible, any, none, or no preference for latest departure, derive latestDepartDate by subtracting minTripDays from latestReturnDate.",
+    "If the user does not provide a latest departure date, keep latestDepartDate null and do not ask for it. FarePing will calculate the latest feasible departure from latestReturnDate and minTripDays.",
     "Only set latestDepartDate equal to earliestDepartDate when the user clearly says the departure date is exact or explicitly gives that same date as both the earliest and latest departure.",
     "For ROUND_TRIP searches, do not infer minTripDays or maxTripDays from the departure and return dates. Only set minTripDaysProvided or maxTripDaysProvided to true if the user explicitly says a stay length preference.",
     "For ROUND_TRIP searches, do not assume missing max trip days means flexible. Ask for maxTripDays unless the user explicitly says max stay is flexible, open, or unlimited.",

@@ -1,71 +1,74 @@
 import Link from "next/link";
-import { Plane, Search } from "lucide-react";
+import { Bell, Plane, Search } from "lucide-react";
 import { AuthPanel } from "../components/AuthPanel";
 import { BackButton } from "../components/BackButton";
+import { NightGlobeScene } from "../components/NightGlobeScene";
 import { TrackedTripsPanel } from "../components/TrackedTripsPanel";
 
 export default function AlertsPage() {
   return (
-    <main className="min-h-screen bg-[#050914] text-white">
-      <section className="relative min-h-screen overflow-hidden">
-        <div
-          className="absolute inset-0 bg-cover bg-center opacity-45"
-          style={{
-            backgroundImage: "url('/images/fareping-hero.png')"
-          }}
-        />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,#050914_0%,rgba(5,9,20,0.96)_52%,rgba(5,9,20,0.74)_100%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-52 bg-[linear-gradient(180deg,rgba(5,9,20,0)_0%,#050914_86%)]" />
+    <main className="fareping-cinematic min-h-screen bg-[#050a0d] text-white">
+      <NightGlobeScene />
+      <div className="fareping-space-shade fixed inset-0" />
+      <div className="pointer-events-none fixed inset-0 z-[1] bg-[#050a0d]/45" />
 
-      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-6 py-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="grid gap-3">
+      <div className="fareping-results-content relative z-10 mx-auto flex w-full max-w-[1280px] flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6">
+        <nav className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
             <BackButton fallbackHref="/" />
-            <Link className="flex items-center gap-3" href="/">
-              <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-white text-[#2563eb]">
-                <Plane size={22} aria-hidden="true" />
+            <Link className="flex items-center gap-2.5" href="/">
+              <span className="flex h-10 w-10 items-center justify-center rounded-md border border-[#9ff3d0]/30 bg-[#9ff3d0]/10 text-[#9ff3d0]">
+                <Plane size={21} aria-hidden="true" />
               </span>
-              <div>
-                <p className="text-sm font-medium text-cyan-100">
-                  Flight deal watcher
-                </p>
-                <h1 className="text-4xl font-semibold tracking-normal sm:text-5xl">FarePing</h1>
-              </div>
+              <span>
+                <span className="block text-[10px] font-bold uppercase text-[#9ff3d0]">
+                  Flexible flight search
+                </span>
+                <span className="block text-lg font-semibold">FarePing</span>
+              </span>
             </Link>
           </div>
 
-          <nav className="flex flex-wrap items-center gap-2 text-sm font-medium">
-            <Link className="rounded-full border border-white/15 bg-white/[0.06] px-4 py-2 text-slate-200 hover:bg-white/10" href="/">
+          <div className="flex h-10 items-center rounded-md border border-white/10 bg-black/25 p-1 text-sm font-semibold backdrop-blur-xl">
+            <Link className="inline-flex h-8 items-center px-3 text-white/55 hover:text-white" href="/">
               Home
             </Link>
-            <Link
-              className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2 text-slate-200 hover:bg-white/10"
-              href="/search"
-            >
-              <Search size={15} aria-hidden="true" />
-              New search
+            <Link className="inline-flex h-8 items-center px-3 text-white/55 hover:text-white" href="/search">
+              Search
             </Link>
-            <Link className="rounded-full bg-white px-4 py-2 text-[#07111f]" href="/alerts">
+            <Link className="inline-flex h-8 items-center rounded bg-[#9ff3d0] px-3 text-[#07110f]" href="/alerts">
               Alerts
             </Link>
-          </nav>
-        </div>
+          </div>
+        </nav>
 
-        <section className="grid max-w-3xl gap-3">
-          <p className="text-sm font-medium text-cyan-100">Tracked trips</p>
-          <h2 className="text-4xl font-semibold tracking-normal sm:text-5xl">
-            Trips FarePing is watching.
-          </h2>
-          <p className="max-w-2xl text-base leading-7 text-slate-300">
-            Pause, delete, check now, or open a trip to see the latest ranked options.
-          </p>
-        </section>
+        <header className="grid gap-5 border-b border-white/12 pb-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,28rem)] lg:items-end">
+          <div className="min-w-0">
+            <p className="inline-flex items-center gap-2 text-xs font-bold uppercase text-[#9ff3d0]">
+              <Bell size={15} aria-hidden="true" />
+              Tracked trips
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold leading-tight sm:text-4xl">
+              Your flight watchlist
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/50">
+              Review the latest prices, adjust a search, or pause monitoring without losing its history.
+            </p>
+          </div>
 
-        <AuthPanel />
+          <AuthPanel compact compactHint="Manage alerts" compactLabel="Sign in" />
+        </header>
 
         <TrackedTripsPanel />
+
+        <Link
+          className="mb-10 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-white/14 bg-black/20 px-4 text-sm font-semibold text-white/70 transition hover:border-[#9ff3d0]/40 hover:text-[#9ff3d0] sm:w-auto sm:self-start"
+          href="/search"
+        >
+          <Search size={16} aria-hidden="true" />
+          Start a new search
+        </Link>
       </div>
-      </section>
     </main>
   );
 }

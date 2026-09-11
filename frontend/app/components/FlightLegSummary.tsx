@@ -1,10 +1,10 @@
-import { ArrowRight } from "lucide-react";
 import {
   formatClockTime,
   formatDuration,
   formatShortDate,
   formatStops
 } from "./currentFlightTypes";
+import { FlightRouteConnector } from "./FlightRouteConnector";
 
 type FlightLegSummaryProps = {
   leg: {
@@ -25,34 +25,31 @@ export function FlightLegSummary({ leg }: FlightLegSummaryProps) {
   const arrivalTime = formatClockTime(leg.arrivalTime) || "Time pending";
 
   return (
-    <div className="grid gap-3 border-t border-white/10 py-3 first:border-t-0 first:pt-0 last:pb-0 sm:grid-cols-[6.5rem_minmax(0,1fr)_minmax(8rem,auto)] sm:items-center">
-      <div>
-        <p className="text-xs font-semibold uppercase text-cyan-100">
+    <div className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[6rem_minmax(18rem,1fr)_8.5rem] sm:items-center">
+      <div className="flex items-baseline justify-between gap-2 sm:block">
+        <p className="text-[10px] font-bold uppercase text-[#9ff3d0]">
           {leg.direction === "OUTBOUND" ? "Outbound" : "Return"}
         </p>
-        <p className="mt-1 text-sm text-slate-400">{formatShortDate(leg.departDate)}</p>
+        <p className="mt-1 text-xs text-white/45">{formatShortDate(leg.departDate)}</p>
       </div>
 
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
-        <div>
-          <p className="text-lg font-semibold text-white">{departureTime}</p>
-          <p className="text-sm font-medium text-slate-400">{leg.originAirport}</p>
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(5rem,0.8fr)_minmax(0,1fr)] items-center gap-2 sm:gap-3">
+        <div className="min-w-0">
+          <p className="whitespace-nowrap text-lg font-semibold text-white">{departureTime}</p>
+          <p className="text-xs font-semibold text-white/45">{leg.originAirport}</p>
         </div>
 
-        <div className="grid justify-items-center gap-1 text-slate-500">
-          <ArrowRight size={18} aria-hidden="true" />
-          <span className="whitespace-nowrap text-xs">{formatDuration(leg.durationMinutes)}</span>
-        </div>
+        <FlightRouteConnector duration={formatDuration(leg.durationMinutes)} />
 
-        <div className="text-right">
-          <p className="text-lg font-semibold text-white">{arrivalTime}</p>
-          <p className="text-sm font-medium text-slate-400">{leg.destinationAirport}</p>
+        <div className="min-w-0 text-right">
+          <p className="whitespace-nowrap text-lg font-semibold text-white">{arrivalTime}</p>
+          <p className="text-xs font-semibold text-white/45">{leg.destinationAirport}</p>
         </div>
       </div>
 
-      <div className="sm:text-right">
-        <p className="text-sm font-semibold text-white">{formatStops(leg.stops)}</p>
-        <p className="mt-1 truncate text-sm text-slate-400" title={leg.airline}>
+      <div className="flex items-center justify-between gap-3 sm:block sm:text-right">
+        <p className="text-xs font-semibold text-white">{formatStops(leg.stops)}</p>
+        <p className="truncate text-xs text-white/45 sm:mt-1" title={leg.airline}>
           {leg.airline}
         </p>
       </div>

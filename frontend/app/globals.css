@@ -36,6 +36,17 @@ select {
   font: inherit;
 }
 
+.fareping-cinematic :focus-visible {
+  outline: 2px solid #9ff3d0;
+  outline-offset: 3px;
+}
+
+body.fareping-globe-dragging {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 @keyframes fareping-message-in {
   from {
     opacity: 0;
@@ -62,10 +73,158 @@ select {
   }
 }
 
+@keyframes fareping-result-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fareping-search-progress {
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(310%);
+  }
+}
+
 .fareping-message-in {
   animation: fareping-message-in 180ms ease-out both;
 }
 
 .fareping-dot {
   animation: fareping-dot-pulse 1s ease-in-out infinite;
+}
+
+.fareping-result-in {
+  animation: fareping-result-in 320ms ease-out both;
+}
+
+.fareping-search-progress {
+  animation: fareping-search-progress 1.35s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fareping-search-progress {
+    animation: none;
+    transform: translateX(100%);
+  }
+}
+
+.fareping-manual-form input {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.28);
+  color: #ffffff;
+}
+
+.fareping-manual-form input::placeholder {
+  color: rgba(255, 255, 255, 0.34);
+}
+
+.fareping-manual-form input:focus {
+  border-color: #9ff3d0;
+  box-shadow: 0 0 0 3px rgba(159, 243, 208, 0.1);
+}
+
+.fareping-auth-input:-webkit-autofill,
+.fareping-auth-input:-webkit-autofill:hover,
+.fareping-auth-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #ffffff;
+  caret-color: #ffffff;
+  box-shadow: 0 0 0 1000px #071110 inset;
+}
+
+.fareping-globe-scene {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: #050a0d;
+}
+
+.fareping-globe-scene canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.fareping-chat-scroll {
+  scrollbar-color: rgba(159, 243, 208, 0.48) rgba(255, 255, 255, 0.045);
+  scrollbar-width: thin;
+}
+
+.fareping-chat-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+
+.fareping-chat-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.fareping-chat-scroll::-webkit-scrollbar-thumb {
+  border-radius: 7px;
+  background: rgba(159, 243, 208, 0.48);
+}
+
+.fareping-space-shade {
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(5, 10, 13, 0.97) 0%, rgba(5, 10, 13, 0.82) 42%, rgba(5, 10, 13, 0.16) 76%),
+    linear-gradient(180deg, rgba(5, 10, 13, 0.2) 0%, rgba(5, 10, 13, 0.02) 56%, rgba(5, 10, 13, 0.78) 100%);
+}
+
+.fareping-cinematic .fareping-command-deck,
+.fareping-cinematic .fareping-manual-form,
+.fareping-cinematic .fareping-trip-readout {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 28px 90px rgba(0, 0, 0, 0.28);
+}
+
+.fareping-cinematic .fareping-manual-form > div > span {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+@media (max-width: 899px) {
+  .fareping-space-shade {
+    background:
+      linear-gradient(180deg, rgba(5, 10, 13, 0.15) 0%, rgba(5, 10, 13, 0.76) 35%, rgba(5, 10, 13, 0.98) 62%),
+      linear-gradient(90deg, rgba(5, 10, 13, 0.45), rgba(5, 10, 13, 0.08));
+  }
+
+  .fareping-trip-readout {
+    margin-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fareping-cinematic *,
+  .fareping-cinematic *::before,
+  .fareping-cinematic *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .fareping-message-in,
+  .fareping-dot,
+  .fareping-result-in {
+    animation: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .fareping-cinematic button,
+  .fareping-cinematic input:not([type="checkbox"]):not([type="radio"]),
+  .fareping-cinematic select,
+  .fareping-cinematic textarea {
+    min-height: 44px;
+  }
 }

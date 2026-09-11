@@ -3,9 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from "react";
-import { Bell, MessageCircle, Plane, Search, Sparkles } from "lucide-react";
+import { Bell, MessageCircle, Plane, Search, Sparkles, X } from "lucide-react";
 import { AuthPanel } from "../components/AuthPanel";
 import { BackButton } from "../components/BackButton";
+import {
+  FlightSearchStatus,
+  type FlightSearchFailure,
+  type FlightSearchPhase
+} from "../components/FlightSearchStatus";
+import { NightGlobeScene } from "../components/NightGlobeScene";
 import { authFetch } from "../components/authClient";
 import { apiUrl } from "../lib/api";
 import {
@@ -17,6 +23,12 @@ import {
 } from "../components/currentFlightTypes";
 
 type TripType = "ROUND_TRIP" | "ONE_WAY";
+
+type FlightSearchState =
+  | { status: "idle" }
+  | { status: "loading"; phase: FlightSearchPhase }
+  | { status: "success"; resultCount: number }
+  | { status: "error"; failure: FlightSearchFailure; request: FlightSearchRequest };
 
 type ChatMessage = {
   id: string;
@@ -67,6 +79,7 @@ type PendingAirportSelection = {
   target: "ORIGINS" | "DESTINATIONS";
   matches: AirportMatch[];
   selectedCodes: string[];
+  existingCodes?: string[];
 };
 
 type SearchPageDraft = {
@@ -105,6 +118,43 @@ const initialChatMessages: ChatMessage[] = [
     text: "Hi, I'm Luna. Ready when you are. Share any trip detail to start."
   }
 ];
+
+function describeSearchFailure(searchError: unknown): FlightSearchFailure {
+  const message = searchError instanceof Error ? searchError.message : "";
+
+  if (searchError instanceof DOMException && searchError.name === "AbortError") {
+    return {
+      kind: "timeout",
+      title: "The search took too long",
+      message: "The fare provider did not finish within two minutes. Retry now, or review the trip and search fewer date combinations."
+    };
+  }
+
+  if (
+    typeof navigator !== "undefined" &&
+    (!navigator.onLine || /fetch failed|failed to fetch|networkerror|load failed/i.test(message))
+  ) {
+    return {
+      kind: "network",
+      title: "FarePing could not reach the search service",
+      message: "Check that the backend is running and that you are online, then retry the same search. Your trip details are still here."
+    };
+  }
+
+  if (/rate limit|too many requests|try again later|429/i.test(message)) {
+    return {
+      kind: "rate-limit",
+      title: "Search limit reached",
+      message: "FarePing is temporarily limiting new searches. Wait a moment, then retry without rebuilding the trip."
+    };
+  }
+
+  return {
+    kind: "provider",
+    title: "The flight search could not finish",
+    message: message || "The provider returned an unexpected response. Retry the search or review the trip details."
+  };
+}
 
 function readSearchPageDraft() {
   try {
@@ -169,8 +219,7 @@ export default function Home() {
   const [maxPrice, setMaxPrice] = useState("");
   const [phone, setPhone] = useState("");
   const [results, setResults] = useState<Itinerary[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [searchState, setSearchState] = useState<FlightSearchState>({ status: "idle" });
   const [hasSearched, setHasSearched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
@@ -190,7 +239,15 @@ export default function Home() {
   const [airportSelectionQueue, setAirportSelectionQueue] = useState<PendingAirportSelection[]>([]);
   const [airportSelectionFollowUp, setAirportSelectionFollowUp] = useState("");
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
+  const airportSelectionRef = useRef<HTMLDivElement>(null);
   const hasSkippedInitialDraftSave = useRef(false);
+  const searchInFlightRef = useRef(false);
+  const loading = searchState.status === "loading";
+  const searchFailure = searchState.status === "error" ? searchState.failure : undefined;
+  const searchPhase = searchState.status === "loading" ? searchState.phase : undefined;
+  const airportSelectionOpen = pendingAirportSelection !== null;
+  const airportSelectionTarget = pendingAirportSelection?.target;
 
   useEffect(() => {
     setHasCurrentResults(Boolean(sessionStorage.getItem(currentResultsStorageKey)));
@@ -297,6 +354,10 @@ export default function Home() {
       chatMessagesElement.scrollTop = chatMessagesElement.scrollHeight;
     }
   }, [chatMessages, pendingAirportSelection, chatReadyToSearch]);
+
+  useEffect(() => {
+    if (airportSelectionOpen) airportSelectionRef.current?.focus();
+  }, [airportSelectionOpen, airportSelectionTarget]);
 
   function handleTripTypeChange(nextTripType: TripType) {
     setTripType(nextTripType);
@@ -454,7 +515,7 @@ export default function Home() {
     }
 
     if (tripType === "ROUND_TRIP") {
-      if (!isValidDateString(latestDepartDate)) {
+      if (latestDepartDate && !isValidDateString(latestDepartDate)) {
         return "Latest departure needs to be in YYYY-MM-DD format.";
       }
 
@@ -470,7 +531,10 @@ export default function Home() {
         return "Earliest return must be a valid date on or before latest return.";
       }
 
-      if (getDayDifference(latestDepartDate, latestReturnDate) <= 0) {
+      if (
+        latestDepartDate &&
+        getDayDifference(latestDepartDate, latestReturnDate) <= 0
+      ) {
         return "Latest departure must be before latest return.";
       }
 
@@ -587,26 +651,30 @@ export default function Home() {
   function buildPendingAirportSelections(response: TripAssistantResponse) {
     const selections: PendingAirportSelection[] = [];
     const draft = response.tripDraft;
+    const existingOriginCodes = new Set(draft.originAirports);
+    const existingDestinationCodes = new Set(draft.destinationAirports);
+    const newOriginOptions = response.airportOptions.origins.filter(
+      (airport) => !existingOriginCodes.has(airport.iataCode)
+    );
+    const newDestinationOptions = response.airportOptions.destinations.filter(
+      (airport) => !existingDestinationCodes.has(airport.iataCode)
+    );
 
-    if (
-      response.airportOptions.origins.length > 0 &&
-      draft.originAirports.length === 0
-    ) {
+    if (newOriginOptions.length > 0) {
       selections.push({
         target: "ORIGINS",
-        matches: response.airportOptions.origins,
-        selectedCodes: buildDefaultSelectedAirportCodes(response.airportOptions.origins)
+        matches: newOriginOptions,
+        selectedCodes: buildDefaultSelectedAirportCodes(newOriginOptions),
+        existingCodes: draft.originAirports
       });
     }
 
-    if (
-      response.airportOptions.destinations.length > 0 &&
-      draft.destinationAirports.length === 0
-    ) {
+    if (newDestinationOptions.length > 0) {
       selections.push({
         target: "DESTINATIONS",
-        matches: response.airportOptions.destinations,
-        selectedCodes: buildDefaultSelectedAirportCodes(response.airportOptions.destinations)
+        matches: newDestinationOptions,
+        selectedCodes: buildDefaultSelectedAirportCodes(newDestinationOptions),
+        existingCodes: draft.destinationAirports
       });
     }
 
@@ -617,10 +685,6 @@ export default function Home() {
     const draft = response.tripDraft;
 
     if (!response.readyToSearch) {
-      return false;
-    }
-
-    if (draft.tripType === "ROUND_TRIP" && !draft.latestDepartDate) {
       return false;
     }
 
@@ -641,12 +705,6 @@ export default function Home() {
     }
 
     return true;
-  }
-
-  function formatAirportMatches(airports: AirportMatch[]) {
-    return airports
-      .map((airport) => `${airport.iataCode} (${airport.municipality || airport.name})`)
-      .join(", ");
   }
 
   function buildDefaultSelectedAirportCodes(airports: AirportMatch[]) {
@@ -683,20 +741,26 @@ export default function Home() {
       return;
     }
 
-    if (pendingAirportSelection.selectedCodes.length === 0) {
+    const existingCodes =
+      pendingAirportSelection.existingCodes ??
+      parseAirportCodes(
+        pendingAirportSelection.target === "ORIGINS" ? originAirport : destinationAirport
+      );
+
+    if (pendingAirportSelection.selectedCodes.length === 0 && existingCodes.length === 0) {
       setChatError("Choose at least one airport before continuing.");
       return;
     }
 
-    const selectedAirports = pendingAirportSelection.matches.filter((airport) =>
-      pendingAirportSelection.selectedCodes.includes(airport.iataCode)
+    const combinedCodes = Array.from(
+      new Set([...existingCodes, ...pendingAirportSelection.selectedCodes])
     );
-    const selectedCodes = selectedAirports.map((airport) => airport.iataCode).join(", ");
+    const combinedCodeList = combinedCodes.join(", ");
 
     if (pendingAirportSelection.target === "ORIGINS") {
-      setOriginAirport(selectedCodes);
+      setOriginAirport(combinedCodeList);
     } else {
-      setDestinationAirport(selectedCodes);
+      setDestinationAirport(combinedCodeList);
     }
 
     const nextAirportSelection = airportSelectionQueue[0] ?? null;
@@ -709,7 +773,7 @@ export default function Home() {
     if (nextAirportSelection) {
       appendChatMessage(
         "assistant",
-        `I will use ${formatAirportMatches(selectedAirports)}. Now choose the ${
+        `I will search ${combinedCodes.join(", ")}. Now choose the ${
           nextAirportSelection.target === "ORIGINS" ? "departure" : "destination"
         } airports.`
       );
@@ -717,17 +781,28 @@ export default function Home() {
       setAirportSelectionFollowUp("");
       appendChatMessage(
         "assistant",
-        `I will use ${formatAirportMatches(selectedAirports)}. I can search the best current options now.`
+        `I will search ${combinedCodes.join(", ")}. I can search the best current options now.`
       );
     } else if (airportSelectionFollowUp) {
       appendChatMessage(
         "assistant",
-        `I will use ${formatAirportMatches(selectedAirports)}. ${airportSelectionFollowUp}`
+        `I will search ${combinedCodes.join(", ")}. ${airportSelectionFollowUp}`
       );
       setAirportSelectionFollowUp("");
     } else {
-      appendChatMessage("assistant", `I will use ${formatAirportMatches(selectedAirports)}.`);
+      appendChatMessage("assistant", `I will search ${combinedCodes.join(", ")}.`);
     }
+
+    if (!nextAirportSelection) {
+      window.requestAnimationFrame(() => chatInputRef.current?.focus());
+    }
+  }
+
+  function closeAirportSelection() {
+    setPendingAirportSelection(null);
+    setAirportSelectionQueue([]);
+    setAirportSelectionFollowUp("");
+    window.requestAnimationFrame(() => chatInputRef.current?.focus());
   }
 
   async function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
@@ -866,16 +941,38 @@ export default function Home() {
     setResults([]);
     setHasSearched(false);
     setHasCurrentResults(false);
+    setSearchState({ status: "idle" });
+    searchInFlightRef.current = false;
     sessionStorage.removeItem(currentResultsStorageKey);
     setShowManualForm(false);
   }
 
-  async function runFlightSearch() {
-    setLoading(true);
-    setError("");
+  async function runFlightSearch(requestOverride?: FlightSearchRequest) {
+    if (searchInFlightRef.current) return null;
+
+    searchInFlightRef.current = true;
+    setSearchState({ status: "loading", phase: "preparing" });
     setResults([]);
     setHasSearched(false);
-    const requestBody = buildSearchRequestBody();
+    const requestBody = requestOverride ?? buildSearchRequestBody();
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 120_000);
+    const phaseTimers = [
+      window.setTimeout(() => {
+        setSearchState((currentState) =>
+          currentState.status === "loading"
+            ? { status: "loading", phase: "searching" }
+            : currentState
+        );
+      }, 650),
+      window.setTimeout(() => {
+        setSearchState((currentState) =>
+          currentState.status === "loading"
+            ? { status: "loading", phase: "ranking" }
+            : currentState
+        );
+      }, 2_200)
+    ];
 
     try {
       const response = await fetch(apiUrl("/api/flights/search"), {
@@ -883,7 +980,8 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
       });
 
       const data = await readJsonResponse<{
@@ -895,21 +993,41 @@ export default function Home() {
       );
       setResults(data.results);
       setHasSearched(true);
+      setSearchState({ status: "success", resultCount: data.results.length });
 
       saveCurrentResultsSession(requestBody, data.results, data.diagnostics);
       router.push("/results/current");
 
       return data.results;
     } catch (searchError) {
-      setError(
-        searchError instanceof Error
-          ? searchError.message
-          : "Something went wrong while searching flights."
-      );
+      setSearchState({
+        status: "error",
+        failure: describeSearchFailure(searchError),
+        request: requestBody
+      });
       return null;
     } finally {
-      setLoading(false);
+      window.clearTimeout(timeout);
+      phaseTimers.forEach((timer) => window.clearTimeout(timer));
+      searchInFlightRef.current = false;
     }
+  }
+
+  async function handleRetrySearch() {
+    if (searchState.status !== "error") return;
+    await runFlightSearch(searchState.request);
+  }
+
+  function handleReviewTrip() {
+    setShowManualForm(true);
+    setSearchState({ status: "idle" });
+    window.requestAnimationFrame(() => {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      document.getElementById("search-setup")?.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "start"
+      });
+    });
   }
 
   async function saveFlightAlert(contactPhoneOverride?: string) {
@@ -1035,11 +1153,14 @@ export default function Home() {
     }
   }
 
-  const noResultsFound = hasSearched && !loading && !error && results.length === 0;
+  const noResultsFound = hasSearched && !loading && !searchFailure && results.length === 0;
   const tripTypeLabel = tripType === "ROUND_TRIP" ? "Round trip" : "One way";
+  const departureSummary = latestDepartDate
+    ? `${earliestDepartDate || "Departure not set"} to ${latestDepartDate}`
+    : `From ${earliestDepartDate || "departure not set"}`;
   const dateSummary =
     tripType === "ROUND_TRIP"
-      ? `${earliestDepartDate || "Departure not set"} to ${latestDepartDate || "latest departure not set"}, return ${earliestReturnDate ? `from ${earliestReturnDate} ` : ""}by ${latestReturnDate || "not set"}`
+      ? `${departureSummary}, return ${earliestReturnDate ? `from ${earliestReturnDate} ` : ""}by ${latestReturnDate || "not set"}`
       : latestDepartDate
         ? `${earliestDepartDate || "Departure not set"} to ${latestDepartDate}`
         : earliestDepartDate || "Not set";
@@ -1060,42 +1181,34 @@ export default function Home() {
     Boolean(phone.trim());
 
   return (
-    <main className="min-h-screen bg-[#050914] text-white">
+    <main className="fareping-cinematic min-h-screen bg-[#050a0d] text-white">
       <section className="relative min-h-screen overflow-hidden">
-        <div
-          className="absolute inset-0 bg-cover bg-center opacity-85"
-          style={{
-            backgroundImage: "url('/images/fareping-hero.png')"
-          }}
-        />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(5,9,20,0.98)_0%,rgba(5,9,20,0.88)_45%,rgba(5,9,20,0.5)_100%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-52 bg-[linear-gradient(180deg,rgba(5,9,20,0)_0%,#050914_82%)]" />
+        <NightGlobeScene />
+        <div className="fareping-space-shade absolute inset-0" aria-hidden="true" />
 
-        <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-5 py-6">
+        <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="grid gap-3">
               <BackButton fallbackHref="/" />
               <div className="flex items-center gap-3">
-                <Link className="flex h-11 w-11 items-center justify-center rounded-lg bg-white text-fare" href="/">
+                <Link className="flex h-10 w-10 items-center justify-center rounded-md border border-[#9ff3d0]/30 bg-[#9ff3d0]/10 text-[#9ff3d0] backdrop-blur-md" href="/">
                   <Plane size={22} aria-hidden="true" />
                 </Link>
                 <div>
-                  <p className="text-sm font-medium text-cyan-100">
-                    Flight deal watcher
-                  </p>
-                  <h1 className="text-3xl font-semibold tracking-normal">FarePing</h1>
+                  <p className="text-[10px] font-semibold uppercase text-[#9ff3d0]">Flexible flight search</p>
+                  <h1 className="text-xl font-semibold tracking-normal text-white">FarePing</h1>
                 </div>
               </div>
             </div>
-            <nav className="flex flex-wrap items-center gap-2 rounded-full border border-white/10 bg-white/8 p-1 text-sm font-medium backdrop-blur-md">
-              <Link className="rounded-full px-4 py-2 text-slate-200 hover:bg-white/10" href="/">
+            <nav className="flex flex-wrap items-center gap-1 rounded-md border border-white/10 bg-[#071010]/70 p-1 text-sm font-medium backdrop-blur-xl">
+              <Link className="rounded px-4 py-2 text-white/75 hover:bg-white/10 hover:text-white" href="/">
                 Home
               </Link>
-              <Link className="rounded-full bg-white px-4 py-2 text-[#07111f]" href="/search#search-setup">
+              <Link className="rounded bg-[#9ff3d0] px-4 py-2 text-[#07110f]" href="/search#search-setup">
                 Search
               </Link>
               <Link
-                className="rounded-full px-4 py-2 text-slate-200 hover:bg-white/10"
+                className="rounded px-4 py-2 text-white/75 hover:bg-white/10 hover:text-white"
                 href="/alerts"
               >
                 Alerts
@@ -1103,34 +1216,46 @@ export default function Home() {
             </nav>
           </div>
 
-          <AuthPanel />
+          <div className="w-full max-w-sm lg:absolute lg:right-10 lg:top-24">
+            <AuthPanel compact />
+          </div>
 
-          <div className="grid flex-1 items-start justify-center gap-5 lg:grid-cols-[minmax(0,820px)_360px]">
+          <div className="grid flex-1 content-start gap-5 pb-8 lg:grid-cols-[minmax(0,760px)_minmax(260px,1fr)] lg:gap-8">
             <section
               className="grid gap-4"
               id="search-setup"
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex flex-col gap-4 text-white sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <p className="mb-2 inline-flex items-center gap-2 text-sm font-medium text-cyan-100">
+                  <p className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase text-[#9ff3d0]">
                     <Sparkles size={16} aria-hidden="true" />
                     Luna
                   </p>
                   <h2 className="text-4xl font-semibold leading-tight tracking-normal sm:text-5xl">
-                    Start with any detail.
+                    Plan a flight.
                   </h2>
                 </div>
-                <button
-                  className="inline-flex h-10 shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-white/18 bg-white/8 px-4 text-sm font-medium text-white backdrop-blur-md hover:bg-white/12"
-                  onClick={() => setShowManualForm((currentValue) => !currentValue)}
-                  type="button"
-                >
-                  {showManualForm ? "Hide manual form" : "Manual setup"}
-                </button>
+                <div className="grid grid-cols-2 rounded-md border border-white/12 bg-[#071010]/70 p-1 text-sm font-medium backdrop-blur-xl">
+                  <button
+                    className={`h-10 rounded px-4 transition ${!showManualForm ? "bg-[#9ff3d0] text-[#07110f]" : "text-white/65 hover:text-white"}`}
+                    onClick={() => setShowManualForm(false)}
+                    type="button"
+                  >
+                    Ask Luna
+                  </button>
+                  <button
+                    className={`h-10 rounded px-4 transition ${showManualForm ? "bg-[#9ff3d0] text-[#07110f]" : "text-white/65 hover:text-white"}`}
+                    onClick={() => setShowManualForm(true)}
+                    type="button"
+                  >
+                    Manual
+                  </button>
+                </div>
               </div>
 
-              <div className="grid min-h-[360px] content-between gap-4 rounded-lg border border-cyan-100/15 bg-[#07111f]/82 p-4 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-xl">
-                <div className="grid max-h-[300px] gap-3 overflow-y-auto pr-1" ref={chatMessagesRef}>
+              {!showManualForm ? (
+              <div className="fareping-command-deck grid min-h-[390px] content-between gap-4 rounded-md border border-white/12 bg-[#071010]/80 p-4 shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl sm:p-5">
+                <div className="fareping-chat-scroll grid max-h-[280px] gap-3 overflow-y-auto pr-2" ref={chatMessagesRef}>
                   {chatMessages.map((message) => (
                     <div
                       className={`fareping-message-in flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
@@ -1139,8 +1264,8 @@ export default function Home() {
                       <p
                         className={`max-w-[86%] rounded-lg px-4 py-3 text-sm leading-6 ${
                           message.role === "user"
-                            ? "bg-[#3b6df6] text-white"
-                            : "border border-white/12 bg-white/10 text-slate-100"
+                            ? "bg-[#d7fbe9] text-[#07110f]"
+                            : "border border-white/10 bg-white/[0.06] text-white/85"
                         }`}
                       >
                         {message.text}
@@ -1150,32 +1275,81 @@ export default function Home() {
 
                   {chatLoading ? (
                     <div className="fareping-message-in flex justify-start">
-                      <div className="inline-flex items-center gap-2 rounded-lg border border-white/12 bg-white/10 px-4 py-3">
-                        <span className="h-2 w-2 rounded-full bg-cyan-100 fareping-dot" />
-                        <span className="h-2 w-2 rounded-full bg-cyan-100 fareping-dot [animation-delay:120ms]" />
-                        <span className="h-2 w-2 rounded-full bg-cyan-100 fareping-dot [animation-delay:240ms]" />
+                      <div
+                        aria-label="Luna is thinking"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-3"
+                      >
+                        <span className="fareping-dot h-1.5 w-1.5 rounded-full bg-emerald-200/60" />
+                        <span className="fareping-dot h-1.5 w-1.5 rounded-full bg-emerald-200/60 [animation-delay:120ms]" />
+                        <span className="fareping-dot h-1.5 w-1.5 rounded-full bg-emerald-200/60 [animation-delay:240ms]" />
                       </div>
+                    </div>
+                  ) : null}
+
+                  {chatMessages.length === 1 && !chatLoading ? (
+                    <div className="flex flex-wrap gap-2 pl-1">
+                      {[
+                        "BOS to DAC for 30+ days",
+                        "New York to Lisbon under $700",
+                        "One way from BOS to LAX"
+                      ].map((prompt) => (
+                        <button
+                          className="rounded-full border border-white/12 bg-white/[0.05] px-3 py-2 text-left text-xs font-medium text-white/60 transition hover:border-[#9ff3d0]/45 hover:text-[#9ff3d0]"
+                          key={prompt}
+                          onClick={() => setChatInput(prompt)}
+                          type="button"
+                        >
+                          {prompt}
+                        </button>
+                      ))}
                     </div>
                   ) : null}
                 </div>
 
                 {pendingAirportSelection ? (
-                  <div className="grid gap-3 rounded-lg border border-cyan-100/15 bg-white/[0.07] p-4 text-white">
+                  <div
+                    aria-describedby="airport-selection-description"
+                    aria-labelledby="airport-selection-title"
+                    aria-modal="false"
+                    className="relative grid gap-3 rounded-md border border-[#9ff3d0]/25 bg-[#0b1817] p-4 pr-12 text-white shadow-[0_18px_50px_rgba(0,0,0,0.3)]"
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        closeAirportSelection();
+                      }
+                    }}
+                    ref={airportSelectionRef}
+                    role="dialog"
+                    tabIndex={-1}
+                  >
+                    <button
+                      aria-label="Close airport selection"
+                      className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-md text-white/50 transition hover:bg-white/10 hover:text-white"
+                      onClick={closeAirportSelection}
+                      type="button"
+                    >
+                      <X size={18} aria-hidden="true" />
+                    </button>
                     <div>
-                      <p className="font-semibold">
+                      <p className="font-semibold text-[#baf5d2]" id="airport-selection-title">
                         {pendingAirportSelection.target === "ORIGINS"
                           ? "Departure airports"
                           : "Destination airports"}
                       </p>
-                      <p className="mt-1 text-sm text-slate-400">
-                        Uncheck anything you do not want FarePing to search.
+                      {pendingAirportSelection.existingCodes?.length ? (
+                        <p className="mt-1 text-xs font-medium text-white/50">
+                          Already included: {pendingAirportSelection.existingCodes.join(", ")}
+                        </p>
+                      ) : null}
+                      <p className="mt-1 text-sm text-white/60" id="airport-selection-description">
+                        Select the additional airports FarePing should search.
                       </p>
                     </div>
 
                     <div className="grid gap-2">
                       {pendingAirportSelection.matches.map((airport) => (
                         <label
-                          className="flex cursor-pointer items-start gap-3 rounded-md border border-white/10 bg-[#050914]/70 p-3 hover:border-cyan-100/30"
+                          className="flex cursor-pointer items-start gap-3 rounded-md border border-white/10 bg-white/[0.05] p-3 hover:border-[#9ff3d0]/45"
                           key={airport.iataCode}
                         >
                           <input
@@ -1188,7 +1362,7 @@ export default function Home() {
                             <span className="font-semibold">
                               {airport.iataCode} - {airport.municipality || airport.name}
                             </span>
-                            <span className="text-slate-400">
+                            <span className="text-white/45">
                               {airport.name} · {airport.region}, {airport.country}
                             </span>
                           </span>
@@ -1197,24 +1371,27 @@ export default function Home() {
                     </div>
 
                     <button
-                      className="inline-flex h-11 items-center justify-center rounded-md bg-cyan-100 px-4 font-semibold text-[#07111f]"
+                      className="inline-flex h-11 items-center justify-center rounded-md bg-[#9ff3d0] px-4 font-semibold text-[#07110f] transition hover:bg-white"
                       onClick={confirmPendingAirports}
                       type="button"
                     >
-                      Use selected airports
+                      {pendingAirportSelection.selectedCodes.length > 0
+                        ? "Add selected airports"
+                        : "Keep current airports"}
                     </button>
                   </div>
                 ) : (
                   <form className="grid gap-2" onSubmit={handleChatSubmit}>
                     <div className="flex flex-col gap-3 sm:flex-row">
                       <input
-                        className="min-h-12 flex-1 rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
+                        className="min-h-12 flex-1 rounded-md border border-white/14 bg-black/25 px-3 py-2 text-white outline-none placeholder:text-white/35 focus:border-[#9ff3d0] focus:ring-2 focus:ring-[#9ff3d0]/10"
                         onChange={(event) => setChatInput(event.target.value)}
-                        placeholder="Type your route, dates, budget, or answer Luna..."
+                        placeholder="Route, dates, budget, or reply..."
+                        ref={chatInputRef}
                         value={chatInput}
                       />
                     <button
-                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#3b6df6] px-5 font-medium text-white transition hover:bg-[#315de0] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-500"
+                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#9ff3d0] px-5 font-semibold text-[#07110f] transition hover:bg-white active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/45"
                       disabled={chatLoading}
                       type="submit"
                     >
@@ -1223,7 +1400,7 @@ export default function Home() {
                     </button>
                     </div>
                     {chatLoading ? (
-                      <p className="text-xs font-semibold text-cyan-100">
+                      <p className="text-xs font-semibold text-[#187254]">
                         Luna is reading your trip...
                       </p>
                     ) : null}
@@ -1233,7 +1410,7 @@ export default function Home() {
                 {chatReadyToSearch && !pendingAirportSelection ? (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <button
-                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-cyan-100 px-4 font-medium text-[#07111f] transition hover:bg-white active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white"
+                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#173d2f] px-4 font-medium text-white transition hover:bg-[#245844] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[#a8afab]"
                       disabled={loading}
                       onClick={handleChatSearch}
                       type="button"
@@ -1242,7 +1419,7 @@ export default function Home() {
                       {loading ? "Searching..." : "Find best flights now"}
                     </button>
                     <button
-                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-cyan-100 px-4 font-medium text-cyan-100 transition hover:bg-cyan-100 hover:text-[#07111f] active:scale-[0.99] disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-500 disabled:hover:bg-transparent"
+                      className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-[#173d2f] px-4 font-medium text-[#173d2f] transition hover:bg-[#e5f5ea] active:scale-[0.99] disabled:cursor-not-allowed disabled:border-[#b7bdb9] disabled:text-[#8b938f] disabled:hover:bg-transparent"
                       disabled={saving || results.length === 0}
                       onClick={handleChatSaveAlert}
                       type="button"
@@ -1252,7 +1429,7 @@ export default function Home() {
                     </button>
                     {hasCurrentResults ? (
                       <Link
-                        className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-white/15 bg-white/[0.06] px-4 font-medium text-slate-100 transition hover:bg-white/10 sm:col-span-2"
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-[#9ff3d0]/25 bg-[#9ff3d0]/[0.06] px-4 text-sm font-semibold text-[#c9f8e4] transition hover:border-[#9ff3d0]/50 hover:bg-[#9ff3d0]/10 sm:col-span-2"
                         href="/results/current"
                       >
                         View current results
@@ -1261,12 +1438,12 @@ export default function Home() {
                   </div>
                 ) : null}
 
-                <div className="flex flex-col gap-2 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-slate-300">
+                <div className="flex flex-col gap-2 border-t border-black/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-[#66716b]">
                     Search now, then turn alerts on only if the options are worth watching.
                   </p>
                   <button
-                    className="text-left text-sm font-semibold text-cyan-100 sm:text-right"
+                    className="text-left text-sm font-semibold text-[#3268dc] sm:text-right"
                     onClick={resetChatSetup}
                     type="button"
                   >
@@ -1286,18 +1463,19 @@ export default function Home() {
                   </p>
                 ) : null}
               </div>
+              ) : null}
 
               {showManualForm ? (
                 <form
-                  className="grid gap-4 rounded-lg border border-cyan-100/15 bg-[#07111f]/88 p-4 text-white shadow-[0_24px_70px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:grid-cols-2"
+                  className="fareping-manual-form grid gap-4 rounded-md border border-white/12 bg-[#071010]/82 p-4 text-white shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl sm:grid-cols-2 sm:p-5"
                   onSubmit={handleSearch}
                 >
                   <div className="grid gap-2 text-sm font-medium sm:col-span-2">
                     <span>Trip type</span>
-                    <div className="grid grid-cols-2 rounded-md border border-white/12 bg-white/8 p-1">
+                    <div className="grid grid-cols-2 rounded-md border border-white/12 bg-black/25 p-1">
                       <label
                         className={`flex h-10 cursor-pointer items-center justify-center rounded px-3 font-semibold ${
-                          tripType === "ROUND_TRIP" ? "bg-cyan-100 text-[#07111f] shadow-sm" : "text-slate-300"
+                          tripType === "ROUND_TRIP" ? "bg-[#9ff3d0] text-[#07110f] shadow-sm" : "text-white/55"
                         }`}
                       >
                         <input
@@ -1311,7 +1489,7 @@ export default function Home() {
                       </label>
                       <label
                         className={`flex h-10 cursor-pointer items-center justify-center rounded px-3 font-semibold ${
-                          tripType === "ONE_WAY" ? "bg-cyan-100 text-[#07111f] shadow-sm" : "text-slate-300"
+                          tripType === "ONE_WAY" ? "bg-[#9ff3d0] text-[#07110f] shadow-sm" : "text-white/55"
                         }`}
                       >
                         <input
@@ -1357,11 +1535,10 @@ export default function Home() {
                     />
                   </label>
                   <label className="grid gap-2 text-sm font-medium">
-                    Latest departure{tripType === "ONE_WAY" ? " (optional)" : ""}
+                    Latest departure (optional)
                     <input
                       className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
                       onChange={(event) => setLatestDepartDate(event.target.value)}
-                      required={tripType === "ROUND_TRIP"}
                       type="date"
                       value={latestDepartDate}
                     />
@@ -1396,7 +1573,10 @@ export default function Home() {
                         <input
                           className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
                           min="1"
-                          onChange={(event) => setMinTripDays(event.target.value)}
+                          onChange={(event) => {
+                            setMinTripDays(event.target.value);
+                            setMinTripDaysProvided(Boolean(event.target.value));
+                          }}
                           required
                           type="number"
                           value={minTripDays}
@@ -1407,7 +1587,11 @@ export default function Home() {
                         <input
                           className="rounded-md border border-white/14 bg-white/[0.08] px-3 py-2 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
                           min="1"
-                          onChange={(event) => setMaxTripDays(event.target.value)}
+                          onChange={(event) => {
+                            setMaxTripDays(event.target.value);
+                            setMaxTripDaysProvided(Boolean(event.target.value));
+                            setMaxTripDaysFlexible(!event.target.value);
+                          }}
                           placeholder="Optional if flexible"
                           type="number"
                           value={maxTripDays}
@@ -1472,17 +1656,12 @@ export default function Home() {
                   </p>
                 ) : null}
 
-                {loading ? (
-                  <p className="rounded-md bg-cyan-100 px-4 py-3 text-sm text-[#07111f]">
-                    Searching flight itineraries...
-                  </p>
-                ) : null}
-
-                {error ? (
-                  <p className="rounded-md bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
-                    {error}
-                  </p>
-                ) : null}
+                <FlightSearchStatus
+                  failure={searchFailure}
+                  onRetry={handleRetrySearch}
+                  onReview={handleReviewTrip}
+                  phase={searchPhase}
+                />
 
                 {noResultsFound ? (
                   <p className="rounded-md bg-amber-100 px-4 py-3 text-sm font-medium text-amber-900">
@@ -1492,54 +1671,57 @@ export default function Home() {
               </div>
             </section>
 
-            <aside className="sticky top-6 rounded-lg border border-cyan-100/15 bg-[#07111f]/78 p-4 shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl">
-              <div className="mb-4 flex items-center justify-between gap-3">
+            <aside className="fareping-trip-readout w-full self-start rounded-md border border-white/10 bg-[#071010]/58 p-4 text-white backdrop-blur-xl lg:mt-[310px] lg:max-w-[360px] lg:justify-self-end">
+              <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium text-cyan-100">Current trip</p>
-                  <p className="mt-1 text-xs text-slate-400">Updates as Luna learns.</p>
+                  <p className="text-xs font-semibold uppercase text-[#9ff3d0]">Current trip</p>
+                  <p className="mt-1 text-[11px] text-white/40">Live search brief</p>
                 </div>
-                <span className="rounded-full border border-white/12 bg-white/8 px-3 py-1 text-xs font-semibold text-slate-200">
+                <span className="rounded border border-white/12 bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-white/70">
                   {tripTypeLabel}
                 </span>
               </div>
 
-              <div className="grid gap-3 text-sm">
+              <div className="mt-4 grid gap-4 text-sm">
                 {hasTripDetails ? (
                   <>
-                    <div className="rounded-md border border-white/10 bg-white/[0.07] p-3">
-                      <p className="text-xs font-semibold uppercase text-slate-400">Route</p>
-                      <p className="mt-2 text-base font-semibold">{originAirport || "Origin not set"}</p>
-                      <p className="text-slate-400">to</p>
-                      <p className="text-base font-semibold">{destinationAirport || "Destination not set"}</p>
+                    <div className="flex items-center gap-3 border-y border-white/10 py-3">
+                      <p className="max-w-[42%] break-words text-base font-semibold leading-6">
+                        {parseAirportCodes(originAirport).join(" / ") || "---"}
+                      </p>
+                      <div className="relative h-px flex-1 bg-white/18">
+                        <Plane className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-[#091414] px-1 text-[#9ff3d0]" size={21} aria-hidden="true" />
+                      </div>
+                      <p className="max-w-[42%] break-words text-right text-base font-semibold leading-6">
+                        {parseAirportCodes(destinationAirport).join(" / ") || "---"}
+                      </p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-md border border-white/10 bg-white/[0.07] p-3">
-                        <p className="text-xs font-semibold uppercase text-slate-400">Dates</p>
-                        <p className="mt-2 font-semibold leading-6">{dateSummary}</p>
-                      </div>
-                      <div className="rounded-md border border-white/10 bg-white/[0.07] p-3">
-                        <p className="text-xs font-semibold uppercase text-slate-400">Stay</p>
-                        <p className="mt-2 font-semibold leading-6">{staySummary}</p>
-                      </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase text-white/38">Travel window</p>
+                      <p className="mt-1 text-xs font-medium leading-5 text-white/78">{dateSummary}</p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-md border border-white/10 bg-white/[0.07] p-3">
-                        <p className="text-xs font-semibold uppercase text-slate-400">Budget</p>
-                        <p className="mt-2 font-semibold">{maxPrice ? `USD ${maxPrice}` : "Not set"}</p>
+                    <div className="grid grid-cols-3 gap-3 border-t border-white/10 pt-3">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase text-white/38">Stay</p>
+                        <p className="mt-1 text-xs font-semibold text-white/78">{staySummary}</p>
                       </div>
-                      <div className="rounded-md border border-white/10 bg-white/[0.07] p-3">
-                        <p className="text-xs font-semibold uppercase text-slate-400">Alerts</p>
-                        <p className="mt-2 font-semibold">{phone.trim() ? "Phone ready" : "Off"}</p>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase text-white/38">Budget</p>
+                        <p className="mt-1 text-xs font-semibold text-white/78">{maxPrice ? `$${maxPrice}` : "Open"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase text-white/38">Alerts</p>
+                        <p className="mt-1 text-xs font-semibold text-white/78">{phone.trim() ? "Ready" : "Off"}</p>
                       </div>
                     </div>
                   </>
                 ) : (
-                  <div className="rounded-md border border-white/10 bg-white/[0.07] p-4">
-                    <p className="font-semibold">No trip details yet.</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-400">
-                      Start with something like “Boston to London in October under 600.”
+                  <div className="border-t border-white/10 pt-4">
+                    <p className="text-sm font-semibold">No trip details yet.</p>
+                    <p className="mt-1 text-xs leading-5 text-white/45">
+                      Start with a route, date window, stay length, or budget.
                     </p>
                   </div>
                 )}

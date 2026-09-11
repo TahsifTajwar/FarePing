@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle } from "lucide-react";
+import { ExternalLink, LoaderCircle, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { apiUrl } from "../lib/api";
 
@@ -58,44 +58,49 @@ export function VerifiedPriceAction({
 
   return (
     <div className="lg:text-right">
-      <p className="text-xs font-semibold text-slate-500">
+      <p className="text-[10px] font-bold uppercase text-white/38">
         {verifiedPrice ? "Verified price" : "From"}
       </p>
-      <p className="text-3xl font-semibold text-cyan-100">
+      <p className="mt-1 whitespace-nowrap text-3xl font-semibold text-[#c9f8e4]">
         {verifiedPrice?.currency ?? currency} {verifiedPrice?.totalPrice ?? initialPrice}
       </p>
       {verifiedPrice?.sellers.length ? (
-        <p className="mt-1 max-w-56 text-xs text-slate-400 lg:ml-auto">
+        <p className="mt-1 max-w-56 text-xs text-white/45 lg:ml-auto">
           {verifiedPrice.sellers.join(" + ")}
         </p>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap gap-2 lg:justify-end">
+      <div className="mt-3 grid gap-2">
         {canVerify && !verifiedPrice ? (
           <button
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-cyan-100 px-4 text-sm font-semibold text-[#07111f] hover:bg-white disabled:cursor-wait disabled:bg-slate-500"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#9ff3d0] px-4 text-sm font-semibold text-[#07110f] transition hover:bg-white disabled:cursor-wait disabled:bg-white/20 disabled:text-white/45"
             disabled={loading}
             onClick={verifyPrice}
             type="button"
           >
-            {loading ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : null}
+            {loading ? (
+              <LoaderCircle className="animate-spin" size={16} aria-hidden="true" />
+            ) : (
+              <RefreshCw size={15} aria-hidden="true" />
+            )}
             {loading ? "Checking..." : "Verify price"}
           </button>
         ) : null}
 
         {bookingLink && (!canVerify || verifiedPrice) ? (
           <a
-            className="inline-flex h-10 items-center justify-center rounded-md bg-cyan-100 px-4 text-sm font-semibold text-[#07111f] hover:bg-white"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#9ff3d0] px-4 text-sm font-semibold text-[#07110f] transition hover:bg-white"
             href={bookingLink}
             rel="noreferrer"
             target="_blank"
           >
             View booking
+            <ExternalLink size={15} aria-hidden="true" />
           </a>
         ) : null}
       </div>
 
-      {error ? <p className="mt-2 max-w-64 text-xs text-red-200 lg:ml-auto">{error}</p> : null}
+      {error ? <p className="mt-2 max-w-64 text-xs text-[#ffaaa2] lg:ml-auto">{error}</p> : null}
     </div>
   );
 }
