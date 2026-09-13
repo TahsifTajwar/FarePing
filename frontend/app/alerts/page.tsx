@@ -24,7 +24,7 @@ export default function AlertsPage() {
                 <span className="block text-[10px] font-bold uppercase text-[#9ff3d0]">
                   Flexible flight search
                 </span>
-                <span className="block text-lg font-semibold">FarePing</span>
+                <span className="block text-lg font-semibold">Chord</span>
               </span>
             </Link>
           </div>

@@ -6,7 +6,7 @@ export const healthRouter = Router();
 healthRouter.get("/", (_req, res) => {
   res.json({
     ok: true,
-    service: "fareping-api",
+    service: "chord-api",
     flightProvider: env.FLIGHT_PROVIDER,
     scheduledFlightProvider: env.SCHEDULED_FLIGHT_PROVIDER,
     smsConfigured,

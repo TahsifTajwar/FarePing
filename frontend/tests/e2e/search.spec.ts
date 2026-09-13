@@ -127,7 +127,7 @@ test("failed searches preserve the request and can be retried", async ({ page },
   releaseFirstRequest?.();
 
   await expect(
-    page.getByRole("heading", { name: "FarePing could not reach the search service" })
+    page.getByRole("heading", { name: "Chord could not reach the search service" })
   ).toBeVisible();
   await expect(page.getByTestId("flight-search-error")).toBeFocused();
   await expect(page.getByText("fetch failed", { exact: true })).toHaveCount(0);

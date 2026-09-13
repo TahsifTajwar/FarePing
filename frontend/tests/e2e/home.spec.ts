@@ -3,10 +3,10 @@ import { expect, test } from "@playwright/test";
 test("home page presents the product and reveals the workflow", async ({ page }, testInfo) => {
   await page.goto("/");
 
-  await expect(page.locator("h1", { hasText: "FarePing" })).toBeVisible();
+  await expect(page.locator("h1", { hasText: "Chord" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Search flights" })).toHaveAttribute("href", "/search");
   await expect(page.getByRole("link", { name: "View alerts" })).toHaveAttribute("href", "/alerts");
-  await expect(page.getByRole("heading", { name: "How FarePing works" })).toBeInViewport();
+  await expect(page.getByRole("heading", { name: "How Chord works" })).toBeInViewport();
 
   const globe = page.locator('canvas[data-testid="night-globe"]');
   await expect(globe).toBeVisible();

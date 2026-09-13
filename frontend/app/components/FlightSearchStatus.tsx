@@ -109,7 +109,7 @@ export function FlightSearchStatus({
         <LoaderCircle className="animate-spin text-[#9ff3d0]" size={20} aria-hidden="true" />
         <div>
           <h2 className="text-sm font-semibold">Searching current fares</h2>
-          <p className="mt-0.5 text-xs text-white/45">Keep this page open while FarePing compares the trip.</p>
+          <p className="mt-0.5 text-xs text-white/45">Keep this page open while Chord compares the trip.</p>
         </div>
       </div>
 

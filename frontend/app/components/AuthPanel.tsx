@@ -8,7 +8,7 @@ import {
   onAuthSessionChange,
   sendEmailSignInLink,
   signOut,
-  type FarePingSession
+  type ChordSession
 } from "./authClient";
 import { backupCurrentResultsForAuth } from "./currentFlightTypes";
 
@@ -23,7 +23,7 @@ export function AuthPanel({
   compactHint = "Optional",
   compactLabel = "Sign in to save alerts"
 }: AuthPanelProps) {
-  const [session, setSession] = useState<FarePingSession | null>(null);
+  const [session, setSession] = useState<ChordSession | null>(null);
   const [email, setEmail] = useState("");
   const [linkSent, setLinkSent] = useState(false);
   const [loading, setLoading] = useState(false);

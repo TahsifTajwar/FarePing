@@ -2,7 +2,7 @@
 
 import { createClient, type Session } from "@supabase/supabase-js";
 
-export type FarePingSession = {
+export type ChordSession = {
   accessToken: string;
   user: {
     id: string;
@@ -42,7 +42,7 @@ export async function getStoredSession() {
     data: { session }
   } = await getSupabaseClient().auth.getSession();
 
-  return toFarePingSession(session);
+  return toChordSession(session);
 }
 
 export async function sendEmailSignInLink(email: string) {
@@ -64,11 +64,11 @@ export async function signOut() {
   window.dispatchEvent(new Event(authSessionChangedEvent));
 }
 
-export function onAuthSessionChange(callback: (session: FarePingSession | null) => void) {
+export function onAuthSessionChange(callback: (session: ChordSession | null) => void) {
   const {
     data: { subscription }
   } = getSupabaseClient().auth.onAuthStateChange((_event, session) => {
-    callback(toFarePingSession(session));
+    callback(toChordSession(session));
     window.dispatchEvent(new Event(authSessionChangedEvent));
   });
 
@@ -91,7 +91,7 @@ export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}
   });
 }
 
-function toFarePingSession(session: Session | null): FarePingSession | null {
+function toChordSession(session: Session | null): ChordSession | null {
   if (!session) {
     return null;
   }

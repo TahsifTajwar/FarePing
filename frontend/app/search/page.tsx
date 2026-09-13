@@ -138,7 +138,7 @@ function describeSearchFailure(searchError: unknown): FlightSearchFailure {
   ) {
     return {
       kind: "network",
-      title: "FarePing could not reach the search service",
+      title: "Chord could not reach the search service",
       message: "Check that the backend is running and that you are online, then retry the same search. Your trip details are still here."
     };
   }
@@ -147,7 +147,7 @@ function describeSearchFailure(searchError: unknown): FlightSearchFailure {
     return {
       kind: "rate-limit",
       title: "Search limit reached",
-      message: "FarePing is temporarily limiting new searches. Wait a moment, then retry without rebuilding the trip."
+      message: "Chord is temporarily limiting new searches. Wait a moment, then retry without rebuilding the trip."
     };
   }
 
@@ -555,7 +555,7 @@ export default function Home() {
       }
 
       if ((!Number(maxTripDays) || !maxTripDaysProvided) && !maxTripDaysFlexible) {
-        return "Maximum stay days needs to be a number. This helps FarePing score trip length correctly.";
+        return "Maximum stay days needs to be a number. This helps Chord score trip length correctly.";
       }
 
       if (!maxTripDaysFlexible && Number(maxTripDays) < Number(minTripDays)) {
@@ -892,7 +892,7 @@ export default function Home() {
           "assistant",
           `Choose the ${
             airportSelections[0].target === "ORIGINS" ? "departure" : "destination"
-          } airports you want FarePing to search.`
+          } airports you want Chord to search.`
         );
         setPendingAirportSelection(airportSelections[0]);
         setAirportSelectionQueue(airportSelections.slice(1));
@@ -1109,7 +1109,7 @@ export default function Home() {
           "assistant",
           "I found a few current options. Want me to watch this trip for stronger deals?"
         );
-        setChatStatus("Use Turn alerts on if you want FarePing to keep watching.");
+        setChatStatus("Use Turn alerts on if you want Chord to keep watching.");
       } else {
         setChatAwaitingPhoneForAlert(true);
         appendChatMessage(
@@ -1141,7 +1141,7 @@ export default function Home() {
     }
 
     if (results.length === 0) {
-      setChatError("Search first and choose alerts only after FarePing finds at least one strong option.");
+      setChatError("Search first and choose alerts only after Chord finds at least one strong option.");
       return;
     }
 
@@ -1198,7 +1198,7 @@ export default function Home() {
                 </Link>
                 <div>
                   <p className="text-[10px] font-semibold uppercase text-[#9ff3d0]">Flexible flight search</p>
-                  <h1 className="text-xl font-semibold tracking-normal text-white">FarePing</h1>
+                  <h1 className="text-xl font-semibold tracking-normal text-white">Chord</h1>
                 </div>
               </div>
             </div>
@@ -1344,7 +1344,7 @@ export default function Home() {
                         </p>
                       ) : null}
                       <p className="mt-1 text-sm text-white/60" id="airport-selection-description">
-                        Select the additional airports FarePing should search.
+                        Select the additional airports Chord should search.
                       </p>
                     </div>
 

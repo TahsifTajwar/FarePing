@@ -23,7 +23,7 @@ const workflow = [
     icon: Search,
     step: "02",
     title: "Compare real options",
-    copy: "FarePing searches valid date combinations and ranks price, duration, stops, and layover quality together."
+    copy: "Chord searches valid date combinations and ranks price, duration, stops, and layover quality together."
   },
   {
     icon: BellRing,
@@ -67,7 +67,7 @@ export default function LandingPage() {
             <span className="block text-[10px] font-bold uppercase text-[#9ff3d0]">
               Flexible flight search
             </span>
-            <span className="block text-lg font-semibold">FarePing</span>
+            <span className="block text-lg font-semibold">Chord</span>
           </span>
         </Link>
 
@@ -91,7 +91,7 @@ export default function LandingPage() {
             Search wide. Choose well.
           </p>
 
-          <h1 className="mt-4 text-5xl font-semibold leading-none sm:text-6xl">FarePing</h1>
+          <h1 className="mt-4 text-5xl font-semibold leading-none sm:text-6xl">Chord</h1>
           <p className="mt-5 max-w-xl text-2xl font-semibold leading-tight text-white/92 sm:text-3xl">
             Flexible flight search that understands the whole trip.
           </p>
@@ -130,7 +130,7 @@ export default function LandingPage() {
           <div className="fareping-results-content flex flex-wrap items-end justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase text-[#9ff3d0]">From idea to alert</p>
-              <h2 className="mt-2 text-2xl font-semibold" id="workflow-title">How FarePing works</h2>
+              <h2 className="mt-2 text-2xl font-semibold" id="workflow-title">How Chord works</h2>
             </div>
             <Link className="inline-flex items-center gap-2 text-sm font-semibold text-[#9ff3d0] hover:text-white" href="/search">
               Start with Luna
@@ -169,7 +169,7 @@ export default function LandingPage() {
               A better fare is more than a lower number.
             </h2>
             <p className="mt-4 max-w-lg text-sm leading-7 text-white/48">
-              FarePing treats your dates, trip length, airport choices, stops, and layover quality as
+              Chord treats your dates, trip length, airport choices, stops, and layover quality as
               parts of the same decision.
             </p>
           </div>
@@ -191,7 +191,7 @@ export default function LandingPage() {
 
       <footer className="relative z-[2] border-t border-white/10 bg-[#050a0d]">
         <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-4 px-4 py-7 text-xs text-white/38 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <span>FarePing</span>
+          <span>Chord</span>
           <div className="flex gap-5">
             <Link className="hover:text-white" href="/search">Search</Link>
             <Link className="hover:text-white" href="/alerts">Alerts</Link>

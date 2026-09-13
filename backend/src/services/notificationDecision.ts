@@ -207,7 +207,7 @@ function buildNotificationMessage(
   const destination = savedSearch.destinationAirports.join(", ");
   const label = itinerary.qualityLabel ?? "good option";
 
-  return `FarePing found a ${label} from ${origin} to ${destination} from ${itinerary.currency} ${itinerary.totalPrice}. Open FarePing to review before booking.`;
+  return `Chord found a ${label} from ${origin} to ${destination} from ${itinerary.currency} ${itinerary.totalPrice}. Open Chord to review before booking.`;
 }
 
 function buildItineraryFingerprint(itinerary: ItineraryForNotification) {

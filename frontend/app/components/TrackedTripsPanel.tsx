@@ -600,7 +600,7 @@ export function TrackedTripsPanel() {
           <BellRing className="text-[#9ff3d0]" size={22} aria-hidden="true" />
           <p className="mt-4 font-semibold">No tracked trips yet.</p>
           <p className="mt-2 max-w-xl text-sm leading-6 text-white/48">
-            Create a search first, then turn alerts on after FarePing shows current flight options.
+            Create a search first, then turn alerts on after Chord shows current flight options.
           </p>
         </div>
       ) : !loading ? (
@@ -752,7 +752,7 @@ export function TrackedTripsPanel() {
                         <div>
                           <p className="text-sm font-semibold text-[#9ff3d0]">Edit alert details</p>
                           <p className="mt-1 text-xs leading-5 text-white/42">
-                            Changes update what FarePing watches. Run a fresh check from the trip page afterward.
+                            Changes update what Chord watches. Run a fresh check from the trip page afterward.
                           </p>
                         </div>
                         <div className="grid grid-cols-2 rounded-md border border-white/12 bg-white/[0.06] p-1 text-sm font-semibold">

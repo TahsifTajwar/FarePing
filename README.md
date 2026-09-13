@@ -1,6 +1,6 @@
-# FarePing
+# Chord
 
-FarePing is a flight price watcher for flexible travelers. Users save trip rules, the backend checks flight data on a schedule, and the app sends SMS alerts when a useful deal appears.
+Chord is a flexible flight-search and intelligent fare-alert platform. Users define travel windows and trip rules, compare quality-ranked itineraries, and save promising searches for scheduled price monitoring.
 
 ## Current MVP
 
@@ -31,7 +31,7 @@ Copy `frontend/.env.example` to `frontend/.env.local`. Set `NEXT_PUBLIC_API_URL`
 
 ## Flight Providers
 
-FarePing supports mock data for development and SerpAPI Google Flights for live searches. Manual searches use `FLIGHT_PROVIDER`. Scheduled saved-search checks use `SCHEDULED_FLIGHT_PROVIDER`, which should stay `mock` during paid API testing.
+Chord supports mock data for development and SerpAPI Google Flights for live searches. Manual searches use `FLIGHT_PROVIDER`. Scheduled saved-search checks use `SCHEDULED_FLIGHT_PROVIDER`, which should stay `mock` during paid API testing.
 
 To use live SerpAPI Google Flights results:
 
@@ -59,7 +59,7 @@ In production, run `npm run start:worker -w backend` as a separate service. One 
 
 ## SMS Setup
 
-FarePing can send SMS alerts through Twilio after a saved flight alert passes the backend notification rules.
+Chord can send SMS alerts through Twilio after a saved flight alert passes the backend notification rules.
 
 Real Twilio credentials should only go in `backend/.env`. Do not commit real secrets.
 
@@ -80,4 +80,4 @@ Twilio trial accounts may only send predefined template messages. For trial test
 TWILIO_USE_TRIAL_TEMPLATE=true
 ```
 
-This sends Twilio's `sms_account_alerts` template instead of FarePing's custom alert text. Set it back to `false` after upgrading Twilio.
+This sends Twilio's `sms_account_alerts` template instead of Chord's custom alert text. Set it back to `false` after upgrading Twilio.

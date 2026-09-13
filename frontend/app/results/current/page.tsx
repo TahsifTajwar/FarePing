@@ -121,7 +121,7 @@ export default function CurrentResultsPage() {
     if (!currentResults) return;
 
     if (!phone.trim()) {
-      setError("Add the phone number FarePing should text before turning this into an alert.");
+      setError("Add the phone number Chord should text before turning this into an alert.");
       return;
     }
 
@@ -144,7 +144,7 @@ export default function CurrentResultsPage() {
         response,
         "Could not save this flight alert."
       );
-      setSaveMessage("Alert saved. FarePing can keep checking this trip now.");
+      setSaveMessage("Alert saved. Chord can keep checking this trip now.");
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -193,7 +193,7 @@ export default function CurrentResultsPage() {
               </span>
               <span>
                 <span className="block text-[10px] font-bold uppercase text-[#9ff3d0]">Flexible flight search</span>
-                <span className="block text-lg font-semibold">FarePing</span>
+                <span className="block text-lg font-semibold">Chord</span>
               </span>
             </Link>
           </div>
@@ -378,7 +378,7 @@ function getEmptyResultsGuidance(currentResults: CurrentResultsSession) {
     return {
       eyebrow: "Provider returned no itineraries",
       title: "No flights were available in the sampled dates",
-      message: "Try a wider departure window or another nearby airport so FarePing can check different combinations."
+      message: "Try a wider departure window or another nearby airport so Chord can check different combinations."
     };
   }
 
@@ -394,7 +394,7 @@ function getEmptyResultsGuidance(currentResults: CurrentResultsSession) {
     return {
       eyebrow: `${scoring.removedByLayoverRules} removed for long layovers`,
       title: "Only exhausting connections were available",
-      message: "FarePing hid the long-layover options. Widening the dates may reveal more reasonable connections."
+      message: "Chord hid the long-layover options. Widening the dates may reveal more reasonable connections."
     };
   }
 
@@ -419,7 +419,7 @@ function getEmptyResultsGuidance(currentResults: CurrentResultsSession) {
 
   return {
     eyebrow: `${rawCount} provider option${rawCount === 1 ? "" : "s"} checked`,
-    title: "Nothing cleared FarePing's quality threshold",
+    title: "Nothing cleared Chord's quality threshold",
     message: "The provider returned flights, but their combined price, duration, stops, or layovers were not strong enough to recommend."
   };
 }
