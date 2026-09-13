@@ -6,6 +6,7 @@ import { FlightLegDetails } from "./FlightLegDetails";
 import { FlightLegSummary } from "./FlightLegSummary";
 import { VerifiedPriceAction } from "./VerifiedPriceAction";
 import {
+  formatDuration,
   formatShortDate,
   formatStops,
   itineraryLabels,
@@ -54,6 +55,26 @@ function getCityRoute(itinerary: DisplayItinerary, airportNamesByCode: Record<st
   const origin = getAirportName(firstLeg.originAirport, airportNamesByCode);
   const destination = getAirportName(firstLeg.destinationAirport, airportNamesByCode);
   return `${origin} to ${destination}${itinerary.type === "ONE_WAY" ? "" : ", then back"}`;
+}
+
+function getAirlineSummary(itinerary: DisplayItinerary) {
+  return [...new Set(itinerary.legs.map((leg) => leg.airline))].join(" + ");
+}
+
+function getFlightCount(itinerary: DisplayItinerary) {
+  return itinerary.legs.reduce((total, leg) => {
+    const segmentCount = leg.segments?.length ?? 0;
+    return total + (segmentCount > 0 ? segmentCount : leg.stops + 1);
+  }, 0);
+}
+
+function getItineraryComposition(itinerary: DisplayItinerary) {
+  const flightCount = getFlightCount(itinerary);
+  const connectionCount = itinerary.legs.reduce((total, leg) => total + leg.stops, 0);
+  const flightLabel = `${flightCount} flight${flightCount === 1 ? "" : "s"}`;
+
+  if (connectionCount === 0) return `${flightLabel} · Direct`;
+  return `${flightLabel} · ${connectionCount} connection${connectionCount === 1 ? "" : "s"}`;
 }
 
 export function CurrentResultsList({ results, airportNamesByCode = {} }: CurrentResultsListProps) {
@@ -140,15 +161,18 @@ export function CurrentResultsList({ results, airportNamesByCode = {} }: Current
         const expanded = expandedItineraryIds.includes(itinerary.id);
         const detailsId = `flight-details-${itinerary.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
         const stops = getTotalStops(itinerary);
+        const hasExpandableDetails = shouldShowSeparateBookingLinks || itinerary.legs.some(
+          (leg) => (leg.segments?.length ?? 0) > 1 || leg.stops > 0
+        );
 
         return (
           <article
-            className="fareping-result-in overflow-hidden rounded-md border border-white/10 bg-[#081210]/88 shadow-[0_20px_70px_rgba(0,0,0,0.28)] backdrop-blur-xl transition hover:border-[#9ff3d0]/30"
+            className="fareping-result-in overflow-hidden rounded-md border border-white/10 bg-[#081210]/92 shadow-[0_20px_70px_rgba(0,0,0,0.28)] backdrop-blur-xl transition hover:border-[#9ff3d0]/30"
             data-testid="flight-result"
             key={itinerary.id}
             style={{ animationDelay: `${Math.min(index, 6) * 55}ms` }}
           >
-            <div className="grid lg:grid-cols-[minmax(0,1fr)_15rem]">
+            <div className="grid lg:grid-cols-[minmax(0,1fr)_14rem]">
               <div className="min-w-0 p-4 sm:p-5">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded bg-[#9ff3d0] px-2.5 py-1 text-[11px] font-bold text-[#07110f]">
@@ -172,7 +196,15 @@ export function CurrentResultsList({ results, airportNamesByCode = {} }: Current
                   {getCityRoute(itinerary, airportNamesByCode)}
                 </h3>
 
-                <div className="mt-3 divide-y divide-white/10">
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/45">
+                  <span className="font-medium text-white/62">{getAirlineSummary(itinerary)}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{getItineraryComposition(itinerary)}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{formatDuration(itinerary.totalDurationMinutes)} total</span>
+                </p>
+
+                <div className="mt-3 divide-y divide-white/[0.07]">
                   {itinerary.legs.map((leg) => (
                     <FlightLegSummary
                       key={`${itinerary.id}-${leg.direction}-${leg.departDate}`}
@@ -188,7 +220,7 @@ export function CurrentResultsList({ results, airportNamesByCode = {} }: Current
                 ) : null}
               </div>
 
-              <div className="flex flex-col justify-between gap-4 border-t border-white/10 bg-black/20 p-4 lg:border-l lg:border-t-0 lg:p-5">
+              <div className={`flex flex-col gap-4 border-t border-white/10 bg-[#0a1714]/80 p-4 lg:border-l lg:border-t-0 lg:p-5 ${hasExpandableDetails ? "justify-between" : "justify-center"}`}>
                 <VerifiedPriceAction
                   bookingLink={shouldShowSeparateBookingLinks ? null : primaryBookingLink}
                   bookingTokens={itinerary.bookingTokens}
@@ -196,39 +228,44 @@ export function CurrentResultsList({ results, airportNamesByCode = {} }: Current
                   initialPrice={itinerary.totalPrice}
                 />
 
-                <button
-                  aria-controls={detailsId}
-                  aria-expanded={expanded}
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/14 px-3 text-sm font-semibold text-white/70 transition hover:border-[#9ff3d0]/40 hover:text-[#9ff3d0]"
-                  onClick={() => toggleItinerary(itinerary.id)}
-                  type="button"
-                >
-                  {expanded ? "Hide details" : "Flight details"}
-                  <ChevronDown
-                    className={`transition ${expanded ? "rotate-180" : ""}`}
-                    size={17}
-                    aria-hidden="true"
-                  />
-                </button>
+                {hasExpandableDetails ? (
+                  <button
+                    aria-controls={detailsId}
+                    aria-expanded={expanded}
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/14 px-3 text-sm font-semibold text-white/70 transition hover:border-[#9ff3d0]/40 hover:text-[#9ff3d0]"
+                    onClick={() => toggleItinerary(itinerary.id)}
+                    type="button"
+                  >
+                    {expanded ? "Hide details" : "Flight details"}
+                    <ChevronDown
+                      className={`transition ${expanded ? "rotate-180" : ""}`}
+                      size={17}
+                      aria-hidden="true"
+                    />
+                  </button>
+                ) : null}
               </div>
             </div>
 
-            {expanded ? (
+            {expanded && hasExpandableDetails ? (
               <div
                 aria-label={`Flight details for ${getCityRoute(itinerary, airportNamesByCode)}`}
-                className="grid gap-5 border-t border-white/10 bg-black/15 px-4 py-5 sm:px-5"
+                className="bg-[#06100f]/72 px-4 py-4 sm:px-5"
                 id={detailsId}
                 role="region"
               >
-                {itinerary.legs.map((leg) => (
-                  <FlightLegDetails
-                    currency={itinerary.currency}
-                    dateLabel={getLegTimingLabel(leg)}
-                    key={`${itinerary.id}-${leg.direction}-${leg.airline}`}
-                    leg={leg}
-                    showSeparateBookingLink={shouldShowSeparateBookingLinks}
-                  />
-                ))}
+                <div className={`grid gap-5 ${itinerary.legs.length > 1 ? "xl:grid-cols-2 xl:gap-8" : ""}`}>
+                  {itinerary.legs.map((leg) => (
+                    <FlightLegDetails
+                      currency={itinerary.currency}
+                      dateLabel={getLegTimingLabel(leg)}
+                      key={`${itinerary.id}-${leg.direction}-${leg.airline}`}
+                      leg={leg}
+                      stacked={itinerary.legs.length > 1}
+                      showSeparateBookingLink={shouldShowSeparateBookingLinks}
+                    />
+                  ))}
+                </div>
               </div>
             ) : null}
 

@@ -1,7 +1,12 @@
 "use client";
 
-import { Clock3, ExternalLink } from "lucide-react";
-import { FlightRouteConnector } from "./FlightRouteConnector";
+import { Fragment } from "react";
+import { ArrowRight, Clock3, ExternalLink, Plane } from "lucide-react";
+import {
+  formatClockTime,
+  formatDuration,
+  formatShortDate
+} from "./currentFlightTypes";
 
 type FlightSegmentLike = {
   segmentOrder: number;
@@ -38,149 +43,108 @@ type FlightLegDetailsProps = {
   currency: string;
   showSeparateBookingLink: boolean;
   dateLabel: string;
+  stacked?: boolean;
 };
 
 export function FlightLegDetails({
   leg,
   currency,
   showSeparateBookingLink,
-  dateLabel
+  dateLabel,
+  stacked = false
 }: FlightLegDetailsProps) {
   const segments =
     leg.segments?.filter((segment) => segment.originAirport && segment.destinationAirport) ?? [];
 
   return (
-    <section className="grid gap-4 border-b border-white/10 pb-5 last:border-b-0 last:pb-0 lg:grid-cols-[8rem_minmax(0,1fr)]">
-      <div>
-        <p className="text-[10px] font-bold uppercase text-[#9ff3d0]">
-          {leg.direction === "OUTBOUND" ? "Outbound" : "Return"}
-        </p>
-        <p className="mt-1 text-sm font-semibold text-white">{dateLabel}</p>
-        <p className="mt-1 text-xs text-white/42">
-          {leg.originAirport} to {leg.destinationAirport}
-        </p>
-        {showSeparateBookingLink && leg.price ? (
-          <p className="mt-3 text-xs font-semibold text-[#efc77e]">
-            {currency} {leg.price}
+    <section className="min-w-0">
+      <header className="flex flex-wrap items-center justify-between gap-2 pb-2">
+        <div className="flex items-baseline gap-3">
+          <p className="text-[10px] font-bold uppercase text-[#9ff3d0]">
+            {leg.direction === "OUTBOUND" ? "Outbound flights" : "Return flights"}
           </p>
+          <p className="text-sm font-semibold text-white">{dateLabel}</p>
+        </div>
+        {showSeparateBookingLink && leg.price ? (
+          <span className="text-xs font-semibold text-[#efc77e]">
+            {currency} {leg.price}
+          </span>
         ) : null}
-      </div>
+      </header>
 
-      <div className="min-w-0 border-t border-white/10 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
-        {segments.length > 0 ? (
-          <div>
-            {segments.map((segment, index) => (
-              <div key={`${leg.direction}-${segment.segmentOrder}-${segment.originAirport}`}>
-                <div className="grid grid-cols-[minmax(0,1fr)_minmax(5.5rem,0.8fr)_minmax(0,1fr)] items-center gap-2 py-3 first:pt-0 sm:grid-cols-[minmax(7.5rem,auto)_minmax(9rem,1fr)_minmax(7.5rem,auto)_minmax(9rem,auto)] sm:gap-4">
+      {segments.length > 0 ? (
+        <div className={`flex gap-2 ${stacked ? "flex-col" : "flex-col xl:flex-row xl:items-stretch"}`}>
+          {segments.map((segment, index) => (
+            <Fragment key={`${leg.direction}-${segment.segmentOrder}-${segment.originAirport}`}>
+              <div className="min-w-0 flex-1 bg-white/[0.025] px-3 py-3">
+                <div className="mb-3 flex items-center justify-between gap-3 text-[11px]">
+                  <span className="inline-flex min-w-0 items-center gap-2 font-semibold text-white/62">
+                    <Plane className="shrink-0 rotate-45 text-[#9ff3d0]" size={14} aria-hidden="true" />
+                    <span className="truncate">{segment.airline}</span>
+                  </span>
+                  <span className="shrink-0 font-medium text-white/42">
+                    {segment.flightNumber || `Flight ${index + 1}`}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
                   <div>
-                    <p className="whitespace-nowrap text-xl font-semibold text-white">
+                    <p className="whitespace-nowrap text-lg font-semibold text-white">
                       {formatClockTime(segment.departTime) || "--"}
                     </p>
                     <p className="text-xs font-semibold text-white/45">{segment.originAirport}</p>
                   </div>
 
-                  <FlightRouteConnector duration={formatDuration(segment.durationMinutes)} />
+                  <div className="grid justify-items-center gap-1 text-white/35">
+                    <ArrowRight size={16} aria-hidden="true" />
+                    <span className="whitespace-nowrap text-[10px] font-semibold uppercase">
+                      {formatDuration(segment.durationMinutes)}
+                    </span>
+                  </div>
 
                   <div className="text-right">
-                    <p className="whitespace-nowrap text-xl font-semibold text-white">
+                    <p className="whitespace-nowrap text-lg font-semibold text-white">
                       {formatClockTime(segment.arrivalTime) || "--"}
                     </p>
                     <p className="text-xs font-semibold text-white/45">{segment.destinationAirport}</p>
                   </div>
-
-                  <div className="col-span-3 min-w-0 self-center sm:col-span-1 sm:text-right">
-                    <p className="truncate text-xs font-semibold text-white" title={segment.airline}>
-                      {segment.airline}
-                    </p>
-                    <p className="mt-1 text-[11px] text-white/42">
-                      {segment.flightNumber || "Flight number pending"}
-                      {segment.arrivalDate && segment.arrivalDate !== segment.departDate
-                        ? ` · arrives ${formatShortDate(segment.arrivalDate)}`
-                        : ""}
-                    </p>
-                  </div>
                 </div>
 
-                {segment.layoverAfterMinutes && index < segments.length - 1 ? (
-                  <div className="flex items-center gap-3 py-1 text-xs font-semibold text-[#f3d49a]">
-                    <span className="hidden h-px min-w-4 flex-1 bg-[#efc77e]/15 sm:block" />
-                    <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                      <Clock3 size={14} aria-hidden="true" />
-                      {formatDuration(segment.layoverAfterMinutes)} layover in {segment.destinationAirport}
-                    </span>
-                    <span className="h-px min-w-4 flex-1 bg-[#efc77e]/15" />
-                  </div>
+                {segment.arrivalDate && segment.arrivalDate !== segment.departDate ? (
+                  <p className="mt-2 text-[10px] text-white/38">
+                    Arrives {formatShortDate(segment.arrivalDate)}
+                  </p>
                 ) : null}
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(5.5rem,0.8fr)_minmax(0,1fr)] items-center gap-2 py-2 sm:grid-cols-[minmax(7.5rem,auto)_minmax(9rem,1fr)_minmax(7.5rem,auto)_minmax(9rem,auto)] sm:gap-4">
-            <div>
-              <p className="text-xl font-semibold">{formatClockTime(leg.departTime) || "--"}</p>
-              <p className="text-xs font-semibold text-white/45">{leg.originAirport}</p>
-            </div>
-            <FlightRouteConnector duration={formatDuration(leg.durationMinutes)} />
-            <div className="text-right">
-              <p className="text-xl font-semibold">{formatClockTime(leg.arrivalTime) || "--"}</p>
-              <p className="text-xs font-semibold text-white/45">{leg.destinationAirport}</p>
-            </div>
-            <p className="col-span-3 self-center text-xs text-white/50 sm:col-span-1 sm:text-right">
-              {formatStops(leg.stops)}
-            </p>
-          </div>
-        )}
 
-        {showSeparateBookingLink && leg.bookingLink ? (
-          <div className="mt-3 flex justify-end border-t border-white/10 pt-3">
-            <a
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[#9ff3d0]/30 px-3 text-xs font-semibold text-[#9ff3d0] transition hover:bg-[#9ff3d0]/10"
-              href={leg.bookingLink}
-              rel="noreferrer"
-              target="_blank"
-            >
-              View this ticket
-              <ExternalLink size={14} aria-hidden="true" />
-            </a>
-          </div>
-        ) : null}
-      </div>
+              {segment.layoverAfterMinutes && index < segments.length - 1 ? (
+                <div className={`flex shrink-0 items-center gap-2 bg-[#efc77e]/[0.045] px-3 py-2 text-xs font-semibold text-[#f3d49a] ${stacked ? "ml-3 border-l-2 border-[#efc77e]/30" : "xl:w-28 xl:flex-col xl:justify-center xl:text-center"}`}>
+                  <Clock3 className="shrink-0" size={14} aria-hidden="true" />
+                  <span>{formatDuration(segment.layoverAfterMinutes)} layover in {segment.destinationAirport}</span>
+                </div>
+              ) : null}
+            </Fragment>
+          ))}
+        </div>
+      ) : (
+        <p className="bg-white/[0.025] px-3 py-3 text-xs text-white/48">
+          Segment details are not available from this fare provider.
+        </p>
+      )}
+
+      {showSeparateBookingLink && leg.bookingLink ? (
+        <div className="mt-3 flex justify-end">
+          <a
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[#9ff3d0]/30 px-3 text-xs font-semibold text-[#9ff3d0] transition hover:bg-[#9ff3d0]/10"
+            href={leg.bookingLink}
+            rel="noreferrer"
+            target="_blank"
+          >
+            View this ticket
+            <ExternalLink size={14} aria-hidden="true" />
+          </a>
+        </div>
+      ) : null}
     </section>
   );
-}
-
-function formatDuration(totalMinutes: number | null | undefined) {
-  if (!totalMinutes) return "Duration unavailable";
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-}
-
-function formatStops(stops: number) {
-  if (stops === 0) return "Nonstop";
-  if (stops === 1) return "1 stop";
-  return `${stops} stops`;
-}
-
-function formatShortDate(date: string) {
-  const dateOnly = date.slice(0, 10);
-  const parsedDate = new Date(`${dateOnly}T00:00:00`);
-  if (Number.isNaN(parsedDate.getTime())) return dateOnly;
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric"
-  }).format(parsedDate);
-}
-
-function formatClockTime(time: string | null | undefined) {
-  if (!time) return "";
-  const [hourText, minuteText] = time.split(":");
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return time;
-
-  const hour12 = hour % 12 || 12;
-  const suffix = hour >= 12 ? "PM" : "AM";
-  return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
 }

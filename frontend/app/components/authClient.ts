@@ -45,8 +45,8 @@ export async function getStoredSession() {
   return toFarePingSession(session);
 }
 
-export async function sendEmailCode(email: string) {
-  const redirectTo = `${window.location.origin}${window.location.pathname}`;
+export async function sendEmailSignInLink(email: string) {
+  const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
   const { error } = await getSupabaseClient().auth.signInWithOtp({
     email,
     options: {
@@ -57,21 +57,6 @@ export async function sendEmailCode(email: string) {
   if (error) {
     throw new Error(error.message || "Could not send the sign-in email.");
   }
-}
-
-export async function verifyEmailCode(email: string, token: string) {
-  const { data, error } = await getSupabaseClient().auth.verifyOtp({
-    email,
-    token,
-    type: "email"
-  });
-
-  if (error) {
-    throw new Error(error.message || "That code did not work. Try a fresh code.");
-  }
-
-  window.dispatchEvent(new Event(authSessionChangedEvent));
-  return toFarePingSession(data.session);
 }
 
 export async function signOut() {

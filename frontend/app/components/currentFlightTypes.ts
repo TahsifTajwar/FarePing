@@ -121,6 +121,103 @@ export type CurrentResultsSession = {
 };
 
 export const currentResultsStorageKey = "fareping-current-results";
+export const currentResultsBackupStorageKey = "fareping-current-results-auth-backup";
+
+const currentResultsBackupMaxAgeMs = 24 * 60 * 60 * 1000;
+
+type CurrentResultsBackup = {
+  backedUpAt: string;
+  currentResults: CurrentResultsSession;
+};
+
+export function persistCurrentResultsSession(currentResults: CurrentResultsSession) {
+  const serializedResults = JSON.stringify(currentResults);
+  sessionStorage.setItem(currentResultsStorageKey, serializedResults);
+  writeCurrentResultsBackup(currentResults);
+}
+
+export function backupCurrentResultsForAuth() {
+  const storedSession = sessionStorage.getItem(currentResultsStorageKey);
+  if (!storedSession) return;
+
+  try {
+    const currentResults = JSON.parse(storedSession) as CurrentResultsSession;
+    if (isValidCurrentResults(currentResults)) {
+      writeCurrentResultsBackup(currentResults);
+    }
+  } catch {
+    sessionStorage.removeItem(currentResultsStorageKey);
+  }
+}
+
+export function readCurrentResultsSession() {
+  const storedSession = sessionStorage.getItem(currentResultsStorageKey);
+
+  if (storedSession) {
+    try {
+      const currentResults = JSON.parse(storedSession) as CurrentResultsSession;
+      if (!isValidCurrentResults(currentResults)) {
+        clearCurrentResultsSession();
+        return null;
+      }
+
+      writeCurrentResultsBackup(currentResults);
+      return currentResults;
+    } catch {
+      clearCurrentResultsSession();
+      return null;
+    }
+  }
+
+  const serializedBackup = localStorage.getItem(currentResultsBackupStorageKey);
+  if (!serializedBackup) return null;
+
+  try {
+    const parsedBackup = JSON.parse(serializedBackup) as CurrentResultsBackup | CurrentResultsSession;
+    const isTimestampedBackup = "currentResults" in parsedBackup;
+    const currentResults = isTimestampedBackup ? parsedBackup.currentResults : parsedBackup;
+    const backupTime = new Date(
+      isTimestampedBackup ? parsedBackup.backedUpAt : currentResults.searchedAt
+    ).getTime();
+
+    if (
+      !isValidCurrentResults(currentResults) ||
+      !Number.isFinite(backupTime) ||
+      Date.now() - backupTime > currentResultsBackupMaxAgeMs
+    ) {
+      clearCurrentResultsSession();
+      return null;
+    }
+
+    sessionStorage.setItem(currentResultsStorageKey, JSON.stringify(currentResults));
+    writeCurrentResultsBackup(currentResults);
+    return currentResults;
+  } catch {
+    clearCurrentResultsSession();
+    return null;
+  }
+}
+
+export function clearCurrentResultsSession() {
+  sessionStorage.removeItem(currentResultsStorageKey);
+  localStorage.removeItem(currentResultsBackupStorageKey);
+}
+
+function writeCurrentResultsBackup(currentResults: CurrentResultsSession) {
+  const backup: CurrentResultsBackup = {
+    backedUpAt: new Date().toISOString(),
+    currentResults
+  };
+  localStorage.setItem(currentResultsBackupStorageKey, JSON.stringify(backup));
+}
+
+function isValidCurrentResults(value: CurrentResultsSession) {
+  return Boolean(
+    value?.requestBody &&
+    Array.isArray(value.results) &&
+    Number.isFinite(new Date(value.searchedAt).getTime())
+  );
+}
 
 export const itineraryLabels = {
   ROUND_TRIP: "Round trip",

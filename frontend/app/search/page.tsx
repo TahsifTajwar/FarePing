@@ -15,7 +15,9 @@ import { NightGlobeScene } from "../components/NightGlobeScene";
 import { authFetch } from "../components/authClient";
 import { apiUrl } from "../lib/api";
 import {
-  currentResultsStorageKey,
+  clearCurrentResultsSession,
+  persistCurrentResultsSession,
+  readCurrentResultsSession,
   type CurrentResultsSession,
   type FlightSearchRequest,
   type Itinerary,
@@ -250,7 +252,7 @@ export default function Home() {
   const airportSelectionTarget = pendingAirportSelection?.target;
 
   useEffect(() => {
-    setHasCurrentResults(Boolean(sessionStorage.getItem(currentResultsStorageKey)));
+    setHasCurrentResults(Boolean(readCurrentResultsSession()));
   }, []);
 
   useEffect(() => {
@@ -411,7 +413,7 @@ export default function Home() {
       searchedAt: new Date().toISOString()
     };
 
-    sessionStorage.setItem(currentResultsStorageKey, JSON.stringify(currentResultsSession));
+    persistCurrentResultsSession(currentResultsSession);
     setHasCurrentResults(true);
   }
 
@@ -943,7 +945,7 @@ export default function Home() {
     setHasCurrentResults(false);
     setSearchState({ status: "idle" });
     searchInFlightRef.current = false;
-    sessionStorage.removeItem(currentResultsStorageKey);
+    clearCurrentResultsSession();
     setShowManualForm(false);
   }
 

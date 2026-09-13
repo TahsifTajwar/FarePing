@@ -8,6 +8,7 @@ test("browser-autofilled email remains visible in the sign-in field", async ({ p
 
   await page.getByText("Sign in", { exact: true }).click();
   const emailInput = page.locator('input[name="email"]');
+  await expect(page.getByRole("button", { name: "Email sign-in link" })).toBeVisible();
   await emailInput.evaluate((input: HTMLInputElement) => {
     const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
     valueSetter?.call(input, "saved@example.com");

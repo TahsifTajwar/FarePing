@@ -6,11 +6,11 @@ import {
   authSessionChangedEvent,
   getStoredSession,
   onAuthSessionChange,
-  sendEmailCode,
+  sendEmailSignInLink,
   signOut,
-  verifyEmailCode,
   type FarePingSession
 } from "./authClient";
+import { backupCurrentResultsForAuth } from "./currentFlightTypes";
 
 type AuthPanelProps = {
   compact?: boolean;
@@ -25,8 +25,7 @@ export function AuthPanel({
 }: AuthPanelProps) {
   const [session, setSession] = useState<FarePingSession | null>(null);
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [codeSent, setCodeSent] = useState(false);
+  const [linkSent, setLinkSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -62,7 +61,7 @@ export function AuthPanel({
     };
   }, []);
 
-  async function handleSendCode(event: FormEvent<HTMLFormElement>) {
+  async function handleSendLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submittedEmail = String(
       new FormData(event.currentTarget).get("email") ?? email
@@ -73,34 +72,12 @@ export function AuthPanel({
     setError("");
 
     try {
-      await sendEmailCode(submittedEmail);
-      setCodeSent(true);
-      setMessage("Check your email. Open the sign-in link or paste the one-time code here.");
+      backupCurrentResultsForAuth();
+      await sendEmailSignInLink(submittedEmail);
+      setLinkSent(true);
+      setMessage("Sign-in link sent. Open it from your email to continue.");
     } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Could not send a sign-in code.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleVerifyCode(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const submittedCode = String(
-      new FormData(event.currentTarget).get("code") ?? code
-    ).trim();
-    setCode(submittedCode);
-    setLoading(true);
-    setMessage("");
-    setError("");
-
-    try {
-      const nextSession = await verifyEmailCode(email.trim(), submittedCode);
-      setSession(nextSession);
-      setCode("");
-      setCodeSent(false);
-      setMessage("Signed in. Your alerts are now separate from other users.");
-    } catch (verifyError) {
-      setError(verifyError instanceof Error ? verifyError.message : "Could not verify this code.");
+      setError(sendError instanceof Error ? sendError.message : "Could not send the sign-in link.");
     } finally {
       setLoading(false);
     }
@@ -143,57 +120,28 @@ export function AuthPanel({
           <span className="text-xs text-white/40 group-open:hidden">{compactHint}</span>
         </summary>
         <div className="border-t border-white/10 p-3">
-          {!codeSent ? (
-            <form className="grid gap-2 sm:grid-cols-[1fr_auto]" onSubmit={handleSendCode}>
-              <input
-                autoCapitalize="none"
-                autoComplete="email"
-                className="fareping-auth-input h-10 rounded-md border border-white/14 bg-black/25 px-3 text-white outline-none placeholder:text-white/35 focus:border-[#9ff3d0]"
-                defaultValue={email}
-                inputMode="email"
-                name="email"
-                onInput={(event) => setEmail(event.currentTarget.value)}
-                placeholder="you@example.com"
-                required
-                spellCheck={false}
-                type="email"
-              />
-              <button
-                className="h-10 rounded-md bg-[#9ff3d0] px-4 font-semibold text-[#07110f] transition hover:bg-white disabled:opacity-50"
-                disabled={loading}
-                type="submit"
-              >
-                {loading ? "Sending..." : "Send code"}
-              </button>
-            </form>
-          ) : (
-            <form className="grid gap-2 sm:grid-cols-[1fr_auto_auto]" onSubmit={handleVerifyCode}>
-              <input
-                autoComplete="one-time-code"
-                className="fareping-auth-input h-10 rounded-md border border-white/14 bg-black/25 px-3 text-white outline-none placeholder:text-white/35 focus:border-[#9ff3d0]"
-                defaultValue={code}
-                inputMode="numeric"
-                name="code"
-                onInput={(event) => setCode(event.currentTarget.value)}
-                placeholder="One-time code"
-                required
-              />
-              <button
-                className="h-10 rounded-md bg-[#9ff3d0] px-4 font-semibold text-[#07110f] disabled:opacity-50"
-                disabled={loading}
-                type="submit"
-              >
-                {loading ? "Checking..." : "Verify"}
-              </button>
-              <button
-                className="h-10 px-3 font-medium text-white/55"
-                onClick={() => setCodeSent(false)}
-                type="button"
-              >
-                Change email
-              </button>
-            </form>
-          )}
+          <form className="grid gap-2 sm:grid-cols-[1fr_auto]" onSubmit={handleSendLink}>
+            <input
+              autoCapitalize="none"
+              autoComplete="email"
+              className="fareping-auth-input h-10 rounded-md border border-white/14 bg-black/25 px-3 text-white outline-none placeholder:text-white/35 focus:border-[#9ff3d0]"
+              defaultValue={email}
+              inputMode="email"
+              name="email"
+              onInput={(event) => setEmail(event.currentTarget.value)}
+              placeholder="you@example.com"
+              required
+              spellCheck={false}
+              type="email"
+            />
+            <button
+              className="h-10 rounded-md bg-[#9ff3d0] px-4 font-semibold text-[#07110f] transition hover:bg-white disabled:opacity-50"
+              disabled={loading}
+              type="submit"
+            >
+              {loading ? "Sending link..." : linkSent ? "Resend link" : "Email sign-in link"}
+            </button>
+          </form>
           {message ? <p className="mt-2 text-[#9ff3d0]">{message}</p> : null}
           {error ? <p className="mt-2 text-[#ffaaa2]">{error}</p> : null}
         </div>
@@ -236,62 +184,33 @@ export function AuthPanel({
         <div>
           <p className="font-bold">Sign in with email</p>
           <p className="mt-1 text-slate-300">
-            Use the email link or paste the one-time code. No password needed.
+            We will email you a secure sign-in link. No password needed.
           </p>
         </div>
       </div>
 
-      {!codeSent ? (
-        <form className="grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={handleSendCode}>
-          <input
-            autoCapitalize="none"
-            autoComplete="email"
-            className="fareping-auth-input h-11 rounded-md border border-white/14 bg-white/[0.08] px-3 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
-            defaultValue={email}
-            inputMode="email"
-            name="email"
-            onInput={(event) => setEmail(event.currentTarget.value)}
-            placeholder="you@example.com"
-            required
-            spellCheck={false}
-            type="email"
-          />
-          <button
-            className="h-11 rounded-md bg-cyan-100 px-4 font-bold text-[#07111f] transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white"
-            disabled={loading}
-            type="submit"
-          >
-            {loading ? "Sending..." : "Send code"}
-          </button>
-        </form>
-      ) : (
-        <form className="grid gap-3 sm:grid-cols-[1fr_auto_auto]" onSubmit={handleVerifyCode}>
-          <input
-            autoComplete="one-time-code"
-            className="fareping-auth-input h-11 rounded-md border border-white/14 bg-white/[0.08] px-3 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
-            defaultValue={code}
-            inputMode="numeric"
-            name="code"
-            onInput={(event) => setCode(event.currentTarget.value)}
-            placeholder="One-time code"
-            required
-          />
-          <button
-            className="h-11 rounded-md bg-cyan-100 px-4 font-bold text-[#07111f] transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white"
-            disabled={loading}
-            type="submit"
-          >
-            {loading ? "Checking..." : "Verify"}
-          </button>
-          <button
-            className="h-11 rounded-md border border-white/15 px-4 font-semibold text-slate-100 transition hover:bg-white/10"
-            onClick={() => setCodeSent(false)}
-            type="button"
-          >
-            Change email
-          </button>
-        </form>
-      )}
+      <form className="grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={handleSendLink}>
+        <input
+          autoCapitalize="none"
+          autoComplete="email"
+          className="fareping-auth-input h-11 rounded-md border border-white/14 bg-white/[0.08] px-3 text-white outline-none placeholder:text-slate-500 focus:border-cyan-200"
+          defaultValue={email}
+          inputMode="email"
+          name="email"
+          onInput={(event) => setEmail(event.currentTarget.value)}
+          placeholder="you@example.com"
+          required
+          spellCheck={false}
+          type="email"
+        />
+        <button
+          className="h-11 rounded-md bg-cyan-100 px-4 font-bold text-[#07111f] transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white"
+          disabled={loading}
+          type="submit"
+        >
+          {loading ? "Sending link..." : linkSent ? "Resend link" : "Email sign-in link"}
+        </button>
+      </form>
 
       {message ? <p className="mt-3 text-sm font-semibold text-cyan-100">{message}</p> : null}
       {error ? <p className="mt-3 text-sm font-semibold text-red-200">{error}</p> : null}

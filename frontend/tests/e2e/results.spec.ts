@@ -173,7 +173,21 @@ const resultsSession = {
           arrivalTime: "20:30",
           durationMinutes: 1220,
           stops: 0,
-          bookingLink: "https://example.com/nonstop"
+          bookingLink: "https://example.com/nonstop",
+          segments: [
+            {
+              segmentOrder: 0,
+              airline: "Example Air",
+              flightNumber: "FP 101",
+              originAirport: "BOS",
+              destinationAirport: "DAC",
+              departDate: "2026-12-29",
+              departTime: "18:30",
+              arrivalDate: "2026-12-30",
+              arrivalTime: "20:30",
+              durationMinutes: 1220
+            }
+          ]
         },
         {
           direction: "RETURN",
@@ -186,7 +200,21 @@ const resultsSession = {
           arrivalTime: "12:00",
           durationMinutes: 1220,
           stops: 0,
-          bookingLink: "https://example.com/nonstop"
+          bookingLink: "https://example.com/nonstop",
+          segments: [
+            {
+              segmentOrder: 0,
+              airline: "Example Air",
+              flightNumber: "FP 102",
+              originAirport: "DAC",
+              destinationAirport: "BOS",
+              departDate: "2027-01-31",
+              departTime: "09:30",
+              arrivalDate: "2027-01-31",
+              arrivalTime: "12:00",
+              durationMinutes: 1220
+            }
+          ]
         }
       ]
     }
@@ -266,6 +294,10 @@ test("results are scannable, sortable, filterable, and expandable", async ({ pag
   await page.getByLabel("Filter by stops").selectOption("NONSTOP");
   await expect(page.getByTestId("flight-result")).toHaveCount(1);
   await expect(page.getByTestId("flight-result")).toContainText("Example Air");
+  await expect(page.getByTestId("flight-result")).toContainText("FP 101");
+  await expect(
+    page.getByTestId("flight-result").locator('button[aria-controls^="flight-details-"]')
+  ).toHaveCount(0);
 
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
@@ -300,6 +332,82 @@ test("results are scannable, sortable, filterable, and expandable", async ({ pag
     fullPage: true,
     path: testInfo.outputPath(`results-${testInfo.project.name}.png`)
   });
+});
+
+test("results survive when an email sign-in link opens in a new tab", async ({ page }) => {
+  await page.addInitScript((session) => {
+    const freshSession = { ...session, searchedAt: new Date().toISOString() };
+    window.localStorage.setItem(
+      "fareping-current-results-auth-backup",
+      JSON.stringify(freshSession)
+    );
+  }, resultsSession);
+
+  await page.route("**/api/airports/resolve?**", async (route) => {
+    const code = new URL(route.request().url()).searchParams.get("q") ?? "";
+    const municipalities: Record<string, string> = { BOS: "Boston", DAC: "Dhaka" };
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        airports: [{
+          iataCode: code,
+          name: `${municipalities[code] ?? code} Airport`,
+          municipality: municipalities[code] ?? code,
+          country: "",
+          region: "",
+          type: "large_airport"
+        }]
+      })
+    });
+  });
+
+  await page.goto("/results/current");
+
+  await expect(page.getByRole("heading", { name: "Boston to Dhaka", exact: true })).toBeVisible();
+  await expect(page.getByTestId("flight-result")).toHaveCount(3);
+  await expect.poll(() => page.evaluate(() =>
+    Boolean(window.sessionStorage.getItem("fareping-current-results"))
+  )).toBe(true);
+});
+
+test("existing session-only results are backfilled before sign-in", async ({ page }) => {
+  await page.addInitScript((session) => {
+    if (!window.localStorage.getItem("fareping-current-results-auth-backup")) {
+      window.sessionStorage.setItem("fareping-current-results", JSON.stringify(session));
+    }
+  }, resultsSession);
+
+  await page.route("**/api/airports/resolve?**", async (route) => {
+    const code = new URL(route.request().url()).searchParams.get("q") ?? "";
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        airports: [{
+          iataCode: code,
+          name: `${code} Airport`,
+          municipality: code === "BOS" ? "Boston" : code === "DAC" ? "Dhaka" : code,
+          country: "",
+          region: "",
+          type: "large_airport"
+        }]
+      })
+    });
+  });
+
+  await page.goto("/results/current");
+  await expect(page.getByRole("heading", { name: "Boston to Dhaka", exact: true })).toBeVisible();
+
+  const backupWasCreated = await page.evaluate(() => {
+    const storedBackup = window.localStorage.getItem("fareping-current-results-auth-backup");
+    if (!storedBackup) return false;
+    const backup = JSON.parse(storedBackup) as { backedUpAt?: string; currentResults?: unknown };
+    return Boolean(backup.backedUpAt && backup.currentResults);
+  });
+  expect(backupWasCreated).toBe(true);
+
+  await page.evaluate(() => window.sessionStorage.removeItem("fareping-current-results"));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Boston to Dhaka", exact: true })).toBeVisible();
 });
 
 test("empty results explain which constraint removed the options", async ({ page }, testInfo) => {

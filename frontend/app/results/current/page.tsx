@@ -8,7 +8,7 @@ import { BackButton } from "../../components/BackButton";
 import { authFetch } from "../../components/authClient";
 import { CurrentResultsList } from "../../components/CurrentResultsList";
 import {
-  currentResultsStorageKey,
+  readCurrentResultsSession,
   type CurrentResultsSession,
   type FlightSearchRequest
 } from "../../components/currentFlightTypes";
@@ -35,21 +35,16 @@ export default function CurrentResultsPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const storedResults = sessionStorage.getItem(currentResultsStorageKey);
+    const parsedResults = readCurrentResultsSession();
 
-    if (!storedResults) {
+    if (!parsedResults) {
       setError("No current search results found. Start a new search first.");
       return;
     }
 
-    try {
-      const parsedResults = JSON.parse(storedResults) as CurrentResultsSession;
-      setCurrentResults(parsedResults);
-      setPhone(parsedResults.requestBody.contactPhone ?? "");
-      void fetchAirportNames(parsedResults);
-    } catch {
-      setError("Could not read the current search results. Start a new search again.");
-    }
+    setCurrentResults(parsedResults);
+    setPhone(parsedResults.requestBody.contactPhone ?? "");
+    void fetchAirportNames(parsedResults);
   }, []);
 
   useEffect(() => {
