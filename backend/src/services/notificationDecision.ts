@@ -1,5 +1,8 @@
 import { prisma } from "../db/prisma.js";
-import { verifySerpApiBookingPrice } from "./flightProviders/serpApiFlightProvider.js";
+import {
+  type SerpApiBookingSelection,
+  verifySerpApiBookingPrice
+} from "./flightProviders/serpApiFlightProvider.js";
 import { sendSms } from "./smsService.js";
 
 const MIN_NOTIFICATION_DEAL_SCORE = 700;
@@ -66,7 +69,8 @@ export async function maybeCreateNotification(
 
   if (bestItinerary.bookingTokens.length > 0) {
     try {
-      const verifiedPrice = await verifySerpApiBookingPrice(bestItinerary.bookingTokens);
+      const bookingSelections = buildBookingSelections(bestItinerary);
+      const verifiedPrice = await verifySerpApiBookingPrice(bookingSelections);
       bestItinerary.totalPrice = verifiedPrice.totalPrice;
       await prisma.$transaction([
         prisma.itineraryResult.update({
@@ -164,6 +168,51 @@ export async function maybeCreateNotification(
     reason: "Notification record created.",
     notification,
     smsResult
+  };
+}
+
+function buildBookingSelections(itinerary: ItineraryForNotification): SerpApiBookingSelection[] {
+  const outboundLeg = itinerary.legs.find((leg) => leg.direction === "OUTBOUND");
+  const returnLeg = itinerary.legs.find((leg) => leg.direction === "RETURN");
+
+  if (!outboundLeg || itinerary.bookingTokens.length === 0) return [];
+
+  if (itinerary.type === "SPLIT_ONE_WAYS") {
+    if (!returnLeg || itinerary.bookingTokens.length !== 2) return [];
+
+    return [
+      buildBookingSelection(itinerary.bookingTokens[0], "ONE_WAY", outboundLeg),
+      buildBookingSelection(itinerary.bookingTokens[1], "ONE_WAY", returnLeg)
+    ];
+  }
+
+  if (itinerary.type === "ROUND_TRIP") {
+    if (!returnLeg || itinerary.bookingTokens.length !== 1) return [];
+
+    return [
+      {
+        ...buildBookingSelection(itinerary.bookingTokens[0], "ROUND_TRIP", outboundLeg),
+        returnDate: formatDate(returnLeg.departDate)
+      }
+    ];
+  }
+
+  return itinerary.bookingTokens.length === 1
+    ? [buildBookingSelection(itinerary.bookingTokens[0], "ONE_WAY", outboundLeg)]
+    : [];
+}
+
+function buildBookingSelection(
+  bookingToken: string,
+  tripType: "ROUND_TRIP" | "ONE_WAY",
+  leg: ItineraryLegForNotification
+): SerpApiBookingSelection {
+  return {
+    bookingToken,
+    tripType,
+    originAirport: leg.originAirport,
+    destinationAirport: leg.destinationAirport,
+    departureDate: formatDate(leg.departDate)
   };
 }
 

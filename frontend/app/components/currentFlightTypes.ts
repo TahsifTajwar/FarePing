@@ -120,6 +120,34 @@ export type CurrentResultsSession = {
   searchedAt: string;
 };
 
+export const alertSnapshotResultLimit = 12;
+
+export function selectAlertSnapshotResults(results: Itinerary[]) {
+  if (results.length <= alertSnapshotResultLimit) return results;
+
+  const selectedResults: Itinerary[] = [];
+  const selectedIds = new Set<string>();
+  const addResult = (result: Itinerary | undefined) => {
+    if (!result || selectedIds.has(result.id)) return;
+    selectedIds.add(result.id);
+    selectedResults.push(result);
+  };
+
+  addResult(results[0]);
+  addResult(results.reduce((cheapest, result) =>
+    result.totalPrice < cheapest.totalPrice ? result : cheapest
+  ));
+  addResult(results.reduce((fastest, result) =>
+    result.totalDurationMinutes < fastest.totalDurationMinutes ? result : fastest
+  ));
+
+  for (const result of results) {
+    if (selectedResults.length >= alertSnapshotResultLimit) break;
+    addResult(result);
+  }
+
+  return selectedResults;
+}
 export const currentResultsStorageKey = "fareping-current-results";
 export const currentResultsBackupStorageKey = "fareping-current-results-auth-backup";
 

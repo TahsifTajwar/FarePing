@@ -115,8 +115,27 @@ const flightSearchSchema = z
     }
   });
 
+const bookingSelectionSchema = z
+  .object({
+    bookingToken: z.string().min(20).max(5000),
+    tripType: z.enum(["ROUND_TRIP", "ONE_WAY"]),
+    originAirport: z.string().length(3),
+    destinationAirport: z.string().length(3),
+    departureDate: z.string().date(),
+    returnDate: z.string().date().optional()
+  })
+  .superRefine((selection, ctx) => {
+    if (selection.tripType === "ROUND_TRIP" && !selection.returnDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "returnDate is required for round-trip price verification.",
+        path: ["returnDate"]
+      });
+    }
+  });
+
 const bookingPriceSchema = z.object({
-  bookingTokens: z.array(z.string().min(20).max(5000)).min(1).max(2)
+  bookingSelections: z.array(bookingSelectionSchema).min(1).max(2)
 });
 
 flightsRouter.post("/booking-price", bookingPriceRateLimit, async (req, res) => {
@@ -128,7 +147,7 @@ flightsRouter.post("/booking-price", bookingPriceRateLimit, async (req, res) => 
   }
 
   try {
-    res.json(await verifySerpApiBookingPrice(parsedInput.data.bookingTokens));
+    res.json(await verifySerpApiBookingPrice(parsedInput.data.bookingSelections));
   } catch (error) {
     res.status(502).json({
       message: error instanceof Error ? error.message : "Booking price verification failed."

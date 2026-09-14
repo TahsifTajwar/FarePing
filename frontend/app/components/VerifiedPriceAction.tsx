@@ -15,18 +15,28 @@ type VerifiedPriceActionProps = {
   bookingTokens?: string[];
   currency: string;
   initialPrice: number;
+  itineraryType: "ROUND_TRIP" | "SPLIT_ONE_WAYS" | "ONE_WAY";
+  legs: Array<{
+    direction: "OUTBOUND" | "RETURN";
+    originAirport: string;
+    destinationAirport: string;
+    departDate: string;
+  }>;
 };
 
 export function VerifiedPriceAction({
   bookingLink,
   bookingTokens = [],
   currency,
-  initialPrice
+  initialPrice,
+  itineraryType,
+  legs
 }: VerifiedPriceActionProps) {
   const [verifiedPrice, setVerifiedPrice] = useState<VerifiedPrice | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const canVerify = bookingTokens.length > 0;
+  const bookingSelections = buildBookingSelections(bookingTokens, itineraryType, legs);
+  const canVerify = bookingSelections.length > 0;
 
   async function verifyPrice() {
     setLoading(true);
@@ -36,7 +46,7 @@ export function VerifiedPriceAction({
       const response = await fetch(apiUrl("/api/flights/booking-price"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingTokens })
+        body: JSON.stringify({ bookingSelections })
       });
       const data = (await response.json()) as VerifiedPrice & { message?: string };
 
@@ -103,4 +113,53 @@ export function VerifiedPriceAction({
       {error ? <p className="mt-2 max-w-64 text-xs text-[#ffaaa2] lg:ml-auto">{error}</p> : null}
     </div>
   );
+}
+
+function buildBookingSelections(
+  bookingTokens: string[],
+  itineraryType: VerifiedPriceActionProps["itineraryType"],
+  legs: VerifiedPriceActionProps["legs"]
+) {
+  const outboundLeg = legs.find((leg) => leg.direction === "OUTBOUND");
+  const returnLeg = legs.find((leg) => leg.direction === "RETURN");
+
+  if (!outboundLeg || bookingTokens.length === 0) return [];
+
+  if (itineraryType === "SPLIT_ONE_WAYS") {
+    if (!returnLeg || bookingTokens.length !== 2) return [];
+
+    return [
+      buildSelection(bookingTokens[0], "ONE_WAY", outboundLeg),
+      buildSelection(bookingTokens[1], "ONE_WAY", returnLeg)
+    ];
+  }
+
+  if (itineraryType === "ROUND_TRIP") {
+    if (!returnLeg || bookingTokens.length !== 1) return [];
+
+    return [
+      {
+        ...buildSelection(bookingTokens[0], "ROUND_TRIP", outboundLeg),
+        returnDate: returnLeg.departDate
+      }
+    ];
+  }
+
+  return bookingTokens.length === 1
+    ? [buildSelection(bookingTokens[0], "ONE_WAY", outboundLeg)]
+    : [];
+}
+
+function buildSelection(
+  bookingToken: string,
+  tripType: "ROUND_TRIP" | "ONE_WAY",
+  leg: VerifiedPriceActionProps["legs"][number]
+) {
+  return {
+    bookingToken,
+    tripType,
+    originAirport: leg.originAirport,
+    destinationAirport: leg.destinationAirport,
+    departureDate: leg.departDate
+  };
 }

@@ -226,6 +226,8 @@ export function CurrentResultsList({ results, airportNamesByCode = {} }: Current
                   bookingTokens={itinerary.bookingTokens}
                   currency={itinerary.currency}
                   initialPrice={itinerary.totalPrice}
+                  itineraryType={itinerary.type}
+                  legs={itinerary.legs}
                 />
 
                 {hasExpandableDetails ? (

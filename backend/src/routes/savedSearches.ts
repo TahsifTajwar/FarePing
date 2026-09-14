@@ -237,9 +237,17 @@ const currentResultSchema = z.object({
   legs: z.array(currentResultLegSchema).min(1)
 });
 
+const alertSnapshotResultLimit = 12;
+
 const createSavedSearchSchema = savedSearchSchema.and(
   z.object({
-    currentResults: z.array(currentResultSchema).optional()
+    currentResults: z
+      .array(currentResultSchema)
+      .max(
+        alertSnapshotResultLimit,
+        `currentResults cannot contain more than ${alertSnapshotResultLimit} itineraries.`
+      )
+      .optional()
   })
 );
 

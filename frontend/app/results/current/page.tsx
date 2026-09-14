@@ -9,6 +9,7 @@ import { authFetch } from "../../components/authClient";
 import { CurrentResultsList } from "../../components/CurrentResultsList";
 import {
   readCurrentResultsSession,
+  selectAlertSnapshotResults,
   type CurrentResultsSession,
   type FlightSearchRequest
 } from "../../components/currentFlightTypes";
@@ -136,7 +137,7 @@ export default function CurrentResultsPage() {
         body: JSON.stringify({
           ...currentResults.requestBody,
           contactPhone: phone.trim(),
-          currentResults: currentResults.results
+          currentResults: selectAlertSnapshotResults(currentResults.results)
         })
       });
 

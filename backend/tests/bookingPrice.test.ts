@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getLowestBookingOption } from "../src/services/flightProviders/serpApiFlightProvider.js";
+import {
+  buildSerpApiBookingQuery,
+  getLowestBookingOption
+} from "../src/services/flightProviders/serpApiFlightProvider.js";
 
 test("selects the lowest current seller price", () => {
   assert.deepEqual(
@@ -22,4 +25,25 @@ test("adds departing and returning prices for a separate-ticket option", () => {
     ]),
     { seller: "Seller A + Seller B", price: 1100 }
   );
+});
+
+test("includes the original round-trip context when verifying a booking token", () => {
+  const query = buildSerpApiBookingQuery(
+    {
+      bookingToken: "booking-token-value",
+      tripType: "ROUND_TRIP",
+      originAirport: "AUS",
+      destinationAirport: "MEL",
+      departureDate: "2027-09-25",
+      returnDate: "2027-10-07"
+    },
+    "test-key"
+  );
+
+  assert.equal(query.get("booking_token"), "booking-token-value");
+  assert.equal(query.get("departure_id"), "AUS");
+  assert.equal(query.get("arrival_id"), "MEL");
+  assert.equal(query.get("outbound_date"), "2027-09-25");
+  assert.equal(query.get("return_date"), "2027-10-07");
+  assert.equal(query.get("type"), "1");
 });

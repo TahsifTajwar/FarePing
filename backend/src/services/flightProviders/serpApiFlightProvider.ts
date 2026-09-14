@@ -36,6 +36,15 @@ export type VerifiedBookingPrice = {
   requestsMade: number;
 };
 
+export type SerpApiBookingSelection = {
+  bookingToken: string;
+  tripType: "ROUND_TRIP" | "ONE_WAY";
+  originAirport: string;
+  destinationAirport: string;
+  departureDate: string;
+  returnDate?: string;
+};
+
 type SerpApiFlightResult = {
   flights?: SerpApiFlightSegment[];
   layovers?: {
@@ -308,15 +317,15 @@ async function fetchGoogleFlights(params: SerpApiSearchParams) {
 }
 
 export async function verifySerpApiBookingPrice(
-  bookingTokens: string[]
+  bookingSelections: SerpApiBookingSelection[]
 ): Promise<VerifiedBookingPrice> {
-  if (bookingTokens.length === 0 || bookingTokens.length > 2) {
-    throw new Error("Price verification requires one booking token, or two for split tickets.");
+  if (bookingSelections.length === 0 || bookingSelections.length > 2) {
+    throw new Error("Price verification requires one itinerary selection, or two for split tickets.");
   }
 
   const verifiedParts = await Promise.all(
-    bookingTokens.map(async (bookingToken) => {
-      const response = await fetchBookingOptions(bookingToken);
+    bookingSelections.map(async (selection) => {
+      const response = await fetchBookingOptions(selection);
       const lowestOption = getLowestBookingOption(response.booking_options ?? []);
 
       if (!lowestOption) {
@@ -331,28 +340,23 @@ export async function verifySerpApiBookingPrice(
     totalPrice: verifiedParts.reduce((total, option) => total + option.price, 0),
     currency: "USD",
     sellers: verifiedParts.map((option) => option.seller),
-    requestsMade: bookingTokens.length
+    requestsMade: bookingSelections.length
   };
 }
 
-async function fetchBookingOptions(bookingToken: string) {
+async function fetchBookingOptions(selection: SerpApiBookingSelection) {
   if (!env.SERPAPI_API_KEY) {
     throw new Error("SerpApi key is missing. Add SERPAPI_API_KEY to backend/.env.");
   }
 
-  const query = new URLSearchParams({
-    engine: "google_flights",
-    api_key: env.SERPAPI_API_KEY,
-    booking_token: bookingToken,
-    currency: "USD",
-    gl: "us",
-    hl: "en",
-    no_cache: "false"
-  });
+  const query = buildSerpApiBookingQuery(selection, env.SERPAPI_API_KEY);
   const response = await fetch(`${env.SERPAPI_BASE_URL}/search.json?${query.toString()}`);
 
   if (!response.ok) {
-    throw new Error(`SerpApi booking verification failed: ${response.status}`);
+    const detail = await getSerpApiResponseError(response);
+    throw new Error(
+      `SerpApi booking verification failed (${response.status})${detail ? `: ${detail}` : "."}`
+    );
   }
 
   const data = (await response.json()) as SerpApiFlightResponse;
@@ -362,6 +366,43 @@ async function fetchBookingOptions(bookingToken: string) {
   }
 
   return data;
+}
+
+export function buildSerpApiBookingQuery(
+  selection: SerpApiBookingSelection,
+  apiKey: string
+) {
+  const query = new URLSearchParams({
+    engine: "google_flights",
+    api_key: apiKey,
+    booking_token: selection.bookingToken,
+    departure_id: selection.originAirport,
+    arrival_id: selection.destinationAirport,
+    outbound_date: selection.departureDate,
+    type: selection.tripType === "ROUND_TRIP" ? "1" : "2",
+    currency: "USD",
+    gl: "us",
+    hl: "en",
+    no_cache: "false"
+  });
+
+  if (selection.returnDate) {
+    query.set("return_date", selection.returnDate);
+  }
+
+  return query;
+}
+
+async function getSerpApiResponseError(response: Response) {
+  const responseText = await response.text();
+
+  try {
+    const parsed = JSON.parse(responseText) as { error?: unknown; message?: unknown };
+    const detail = typeof parsed.error === "string" ? parsed.error : parsed.message;
+    return typeof detail === "string" ? detail.slice(0, 300) : "";
+  } catch {
+    return responseText.trim().slice(0, 300);
+  }
 }
 
 function getBookingOptionPrice(option: SerpApiBookingOption) {
